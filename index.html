@@ -104,10 +104,18 @@
      dann Form, Gr., Soll, Paar, Auss. rechts fuer den Formwechsel. */
   .tabellen-wrapper {
     overflow-x: auto;
+    overflow-y: auto;
     -webkit-overflow-scrolling: touch;
     border: 1px solid var(--grau-rand);
     border-radius: 12px;
     background: white;
+    /* Eigener, begrenzter vertikaler Scrollbereich - noetig, damit die
+       "position: sticky"-Kopfzeile beim Scrollen zuverlaessig oben
+       stehen bleibt (sticky wirkt nur innerhalb des tatsaechlich
+       scrollenden Containers, nicht wenn stattdessen die ganze Seite
+       scrollt). Die Hoehe laesst ca. 12-13 Stationszeilen sichtbar,
+       darunter/darueber wird innerhalb der Tabelle selbst gescrollt. */
+    max-height: 70vh;
   }
   table.stationen-tabelle {
     border-collapse: collapse;
@@ -128,22 +136,42 @@
     font-weight: 700;
     position: sticky;
     top: 0;
-    z-index: 2;
+    z-index: 4;
   }
   table.stationen-tabelle td.spalte-form-info { text-align: left; font-size: 16px; color: var(--text-dim); min-width: 260px; }
   table.stationen-tabelle td.spalte-anfang { font-weight: 700; background: #f8f9fb; font-size: 18px; }
-  /* Station-Spalte bleibt beim horizontalen Scrollen sichtbar */
-  table.stationen-tabelle th:first-child, table.stationen-tabelle td:first-child {
+
+  /* Haekchen-Spalte (ganz links) UND Station-Spalte (zweite von links)
+     bleiben beim horizontalen Scrollen sichtbar - "left" ist auf die
+     jeweils vorherigen fixierten Spalten abgestimmt, damit sie sich
+     nicht ueberlappen. */
+  table.stationen-tabelle td.spalte-haekchen, table.stationen-tabelle th:first-child {
     position: sticky;
     left: 0;
+    z-index: 2;
+    background: white;
+  }
+  table.stationen-tabelle th:nth-child(2), table.stationen-tabelle td:nth-child(2) {
+    position: sticky;
+    left: 52px;
     z-index: 1;
     background: white;
     font-weight: 800;
     font-size: 19px;
   }
-  table.stationen-tabelle th:first-child { z-index: 3; background: #f4f6f9; }
+  table.stationen-tabelle th:first-child, table.stationen-tabelle th:nth-child(2) { z-index: 5; background: #f4f6f9; }
+  table.stationen-tabelle tr.formwechsel-aktiv td.spalte-haekchen,
+  table.stationen-tabelle tr.formwechsel-aktiv td:nth-child(2) { background: var(--gelb-hell); }
+
+  table.stationen-tabelle td.spalte-haekchen { text-align: center; width: 52px; }
+  .haekchen-checkbox {
+    width: 32px;
+    height: 32px;
+    cursor: pointer;
+    accent-color: var(--gruen);
+  }
+
   table.stationen-tabelle tr.formwechsel-aktiv td { background: var(--gelb-hell); }
-  table.stationen-tabelle tr.formwechsel-aktiv td:first-child { background: var(--gelb-hell); }
 
   table.stationen-tabelle input {
     width: 95px;
@@ -703,6 +731,7 @@ function baueStationenFormular() {
 
   const kopfzeile = `
     <tr>
+      <th>✓</th>
       <th>Station</th>
       <th>Form</th>
       <th>Gr.</th>
@@ -728,6 +757,7 @@ function baueStationenFormular() {
 
   const zeilen = aktuellerStand.map(st => `
     <tr id="stationZeile${st.station}">
+      <td class="spalte-haekchen"><input type="checkbox" class="haekchen-checkbox" id="haekchen_${st.station}" tabindex="-1"></td>
       <td>${st.station}</td>
       <td class="spalte-form-info"><input type="text" class="eingabe-form" id="form_${st.station}" value="${st.form || ''}" tabindex="-1"></td>
       <td><input type="text" id="groesse_${st.station}" value="${st.groesse || ''}" tabindex="-1"></td>
@@ -834,8 +864,11 @@ function baueStationenFormular() {
   // Nach dem Aufbau: Autosave-Wiederherstellung versuchen
   stelleAutosaveWiederHer();
 
-  // Auf jede Eingabe hin automatisch zwischenspeichern
+  // Auf jede Eingabe hin automatisch zwischenspeichern - "change"
+  // zusaetzlich zu "input", da Checkboxen (Haekchen-Spalte) auf manchen
+  // Browsern kein "input"-Event zuverlaessig ausloesen.
   bereich.addEventListener('input', speichereAutosave);
+  bereich.addEventListener('change', speichereAutosave);
 }
 
 // ------------------------------------------------------------------
@@ -852,6 +885,7 @@ function sammleFormularDaten() {
     stoerung: document.getElementById('stoerungFeld').value,
     stationen: aktuellerStand.map(st => ({
       station: st.station,
+      haekchen: document.getElementById(`haekchen_${st.station}`)?.checked || false,
       form: document.getElementById(`form_${st.station}`)?.value || '',
       groesse: document.getElementById(`groesse_${st.station}`)?.value || '',
       soll: document.getElementById(`soll_${st.station}`)?.value || '',
@@ -1033,7 +1067,7 @@ async function stelleAutosaveWiederHer() {
     // sich um einen echten, wiederherstellenswerten Zwischenstand.
     const teamAusgefuellt = !!(daten.maschinenfuehrer || daten.reinklopfer || daten.rausnehmer || daten.stoerung);
     const stationAusgefuellt = (daten.stationen || []).some(st =>
-      st.ende || st.ausschuss || st.neueForm || st.neueGr || st.neuesSoll || st.neuesPaar ||
+      st.haekchen || st.ende || st.ausschuss || st.neueForm || st.neueGr || st.neuesSoll || st.neuesPaar ||
       st.neuerAusschuss || st.kunde || st.neueForm2 || st.neueGr2 || st.neuesSoll2 ||
       st.neuesPaar2 || st.neuerAusschuss2 || st.kunde2
     );
@@ -1046,6 +1080,8 @@ async function stelleAutosaveWiederHer() {
     document.getElementById('stoerungFeld').value = daten.stoerung || '';
     (daten.stationen || []).forEach(st => {
       const setzeWert = (id, wert) => { const el = document.getElementById(id); if (el && wert) el.value = wert; };
+      const haekchenFeld = document.getElementById(`haekchen_${st.station}`);
+      if (haekchenFeld) haekchenFeld.checked = !!st.haekchen;
       setzeWert(`form_${st.station}`, st.form);
       setzeWert(`groesse_${st.station}`, st.groesse);
       setzeWert(`soll_${st.station}`, st.soll);
@@ -1181,6 +1217,8 @@ document.getElementById('rueckgaengigBtn').addEventListener('click', async () =>
     document.getElementById('stoerungFeld').value = formular.stoerung || '';
     (formular.stationen || []).forEach(st => {
       const setzeWert = (id, wert) => { const el = document.getElementById(id); if (el) el.value = wert || ''; };
+      const haekchenFeld = document.getElementById(`haekchen_${st.station}`);
+      if (haekchenFeld) haekchenFeld.checked = !!st.haekchen;
       setzeWert(`ende_${st.station}`, st.ende);
       setzeWert(`ausschuss_${st.station}`, st.ausschuss);
       setzeWert(`neueForm_${st.station}`, st.neueForm);
@@ -1327,6 +1365,8 @@ document.getElementById('absendenBtn').addEventListener('click', async () => {
     document.getElementById('rausnehmerFeld').value = '';
     document.getElementById('stoerungFeld').value = '';
     aktuellerStand.forEach(st => {
+      const haekchenFeld = document.getElementById(`haekchen_${st.station}`);
+      if (haekchenFeld) haekchenFeld.checked = false;
       ['ende','ausschuss','neueForm','neueGr','neuesSoll','neuesPaar','neuerAusschuss','kunde','neueForm2','neueGr2','neuesSoll2','neuesPaar2','neuerAusschuss2','kunde2'].forEach(feld => {
         const id = { ende:'ende_', ausschuss:'ausschuss_', neueForm:'neueForm_', neueGr:'neueGr_', neuesSoll:'neuesSoll_', neuesPaar:'neuesPaar_', neuerAusschuss:'neuerAusschuss_', kunde:'kunde_', neueForm2:'neueForm2_', neueGr2:'neueGr2_', neuesSoll2:'neuesSoll2_', neuesPaar2:'neuesPaar2_', neuerAusschuss2:'neuerAusschuss2_', kunde2:'kunde2_' }[feld] + st.station;
         const el = document.getElementById(id);
