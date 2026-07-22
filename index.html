@@ -1,0 +1,1092 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Belegungsplan – Rundläufer</title>
+
+<!-- PWA: macht die Seite auf dem Tablet-Startbildschirm installierbar -
+     eigenes Icon, Vollbild-Ansicht ohne Browser-Adressleiste, verhaelt
+     sich wie eine "echte" App, ohne dass ein App-Store-Konto/Freigabe-
+     Prozess noetig ist. -->
+<link rel="manifest" href="https://otmsgyihmrvkwgtgjoui.supabase.co/functions/v1/tablet-manifest">
+<meta name="theme-color" content="#1c7c3f">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Belegungsplan">
+<link rel="apple-touch-icon" href="https://otmsgyihmrvkwgtgjoui.supabase.co/functions/v1/tablet-icon?groesse=192">
+<link rel="icon" type="image/png" sizes="192x192" href="https://otmsgyihmrvkwgtgjoui.supabase.co/functions/v1/tablet-icon?groesse=192">
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+<style>
+  :root {
+    --gruen: #1c7c3f;
+    --gruen-hell: #e6f4ea;
+    --gelb-hell: #fff6d9;
+    --rot: #c0392b;
+    --rot-hell: #fbe9e7;
+    --text: #1f2430;
+    --text-dim: #6b7280;
+    --grau-rand: #d8dce3;
+    --blau: #1a56db;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    background: #f4f6f9;
+    color: var(--text);
+    font-size: 18px;
+    -webkit-tap-highlight-color: transparent;
+  }
+  header {
+    background: white;
+    padding: 18px 20px;
+    border-bottom: 1px solid var(--grau-rand);
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  header h1 { font-size: 24px; margin: 0; }
+  header .status-punkt {
+    width: 14px; height: 14px; border-radius: 50%;
+    background: #ccc; display: inline-block; margin-right: 8px;
+  }
+  header .status-punkt.online { background: var(--gruen); }
+  header .status-punkt.offline { background: var(--rot); }
+
+  .container { max-width: 1600px; margin: 0 auto; padding: 16px; }
+
+  .karte {
+    background: white;
+    border-radius: 14px;
+    padding: 18px;
+    margin-bottom: 16px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+  }
+
+  .schicht-wahl { display: flex; gap: 12px; }
+  .schicht-btn {
+    flex: 1;
+    padding: 22px;
+    font-size: 22px;
+    font-weight: 700;
+    border-radius: 12px;
+    border: 3px solid var(--grau-rand);
+    background: white;
+    color: var(--text);
+    cursor: pointer;
+  }
+  .schicht-btn.aktiv { border-color: var(--gruen); background: var(--gruen-hell); color: var(--gruen); }
+
+  label { display: block; font-weight: 600; margin-bottom: 6px; font-size: 15px; color: var(--text-dim); }
+  input[type=text], input[type=number], textarea, select {
+    width: 100%;
+    padding: 14px;
+    font-size: 18px;
+    border-radius: 10px;
+    border: 2px solid var(--grau-rand);
+    margin-bottom: 14px;
+    font-family: inherit;
+  }
+  input:focus, textarea:focus, select:focus { outline: none; border-color: var(--blau); }
+
+  .team-grid { display: grid; grid-template-columns: 1fr; gap: 0; }
+  @media (min-width: 700px) { .team-grid { grid-template-columns: 1fr 1fr 1fr; gap: 14px; } }
+
+  /* Tabellen-Ansicht der 20 Stationen - angelehnt an den Original-
+     Belegungsplan: Station, Form, Gr., Soll, Anfang, Ende, Auss. links,
+     dann Form, Gr., Soll, Paar, Auss. rechts fuer den Formwechsel. */
+  .tabellen-wrapper {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    border: 1px solid var(--grau-rand);
+    border-radius: 12px;
+    background: white;
+  }
+  table.stationen-tabelle {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 2250px;
+    font-size: 18px;
+  }
+  table.stationen-tabelle th, table.stationen-tabelle td {
+    border: 1px solid var(--grau-rand);
+    padding: 10px 8px;
+    text-align: center;
+    white-space: nowrap;
+  }
+  table.stationen-tabelle th {
+    background: #f4f6f9;
+    font-size: 15px;
+    color: var(--text-dim);
+    font-weight: 700;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+  }
+  table.stationen-tabelle td.spalte-form-info { text-align: left; font-size: 16px; color: var(--text-dim); min-width: 260px; }
+  table.stationen-tabelle td.spalte-anfang { font-weight: 700; background: #f8f9fb; font-size: 18px; }
+  /* Station-Spalte bleibt beim horizontalen Scrollen sichtbar */
+  table.stationen-tabelle th:first-child, table.stationen-tabelle td:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background: white;
+    font-weight: 800;
+    font-size: 19px;
+  }
+  table.stationen-tabelle th:first-child { z-index: 3; background: #f4f6f9; }
+  table.stationen-tabelle tr.formwechsel-aktiv td { background: var(--gelb-hell); }
+  table.stationen-tabelle tr.formwechsel-aktiv td:first-child { background: var(--gelb-hell); }
+
+  table.stationen-tabelle input {
+    width: 95px;
+    padding: 12px 6px;
+    font-size: 18px;
+    border-radius: 8px;
+    border: 1.5px solid var(--grau-rand);
+    text-align: center;
+    margin-bottom: 0;
+  }
+  table.stationen-tabelle input.eingabe-breit { width: 150px; }
+  /* Formnummern-Felder (alte Form + neue Form bei beiden Formwechseln)
+     brauchen deutlich mehr Platz, um lange Artikelnummern inkl.
+     Kundenname vollstaendig lesbar zu machen, ohne staendig scrollen zu
+     muessen. */
+  table.stationen-tabelle input.eingabe-form { width: 260px; text-align: left; padding-left: 10px; }
+  table.stationen-tabelle input:focus { border-color: var(--blau); outline: none; }
+
+  .formwechsel-trenner td { background: #eef0f4; border-left: 3px solid var(--text-dim); }
+
+  .formwechsel-toggle-zelle button {
+    background: none;
+    border: 1.5px solid var(--grau-rand);
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 13px;
+    color: var(--blau);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  tr.formwechsel-aktiv .formwechsel-toggle-zelle button { border-color: #b48a00; color: #7a5c00; }
+
+  .hinweis-scroll { font-size: 13px; color: var(--text-dim); padding: 8px 4px; text-align: center; }
+
+  .grosser-btn {
+    width: 100%;
+    padding: 20px;
+    font-size: 20px;
+    font-weight: 700;
+    border-radius: 12px;
+    border: none;
+    background: var(--gruen);
+    color: white;
+    cursor: pointer;
+    margin-top: 10px;
+  }
+  .grosser-btn:disabled { background: #a8b0bb; }
+  .grosser-btn.sekundaer { background: white; color: var(--text); border: 2px solid var(--grau-rand); }
+
+  .meldung {
+    padding: 16px;
+    border-radius: 10px;
+    font-weight: 600;
+    margin-bottom: 16px;
+    display: none;
+  }
+  .meldung.erfolg { display: block; background: var(--gruen-hell); color: var(--gruen); }
+  .meldung.fehler { display: block; background: var(--rot-hell); color: var(--rot); }
+  .meldung.info { display: block; background: #eef2ff; color: var(--blau); }
+
+  .versteckt { display: none !important; }
+
+  datalist {}
+  .popup-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    padding: 20px;
+  }
+  .popup-box {
+    background: white;
+    border-radius: 16px;
+    padding: 28px;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.3);
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    max-width: 420px;
+  }
+
+  /* Eigenes Vorschlags-Dropdown fuer Artikelnummern (ersetzt <datalist>,
+     die bei mehreren tausend Eintraegen im Browser unbrauchbar langsam
+     wird). Wird per JavaScript positioniert und befuellt. */
+  .artikel-dropdown {
+    position: fixed;
+    background: white;
+    border: 1.5px solid var(--grau-rand);
+    border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+    max-height: 280px;
+    overflow-y: auto;
+    z-index: 500;
+    min-width: 260px;
+  }
+  .artikel-dropdown .eintrag {
+    padding: 12px 14px;
+    font-size: 16px;
+    cursor: pointer;
+    border-bottom: 1px solid #f0f1f4;
+  }
+  .artikel-dropdown .eintrag:last-child { border-bottom: none; }
+  .artikel-dropdown .eintrag:hover, .artikel-dropdown .eintrag.markiert { background: #eef4fa; }
+</style>
+</head>
+<body>
+
+<!-- Pop-up: erscheint, sobald der Haupt-PC einen neuen Belegungsplan
+     (aktualisierte Vorlage) fuer diesen Rundlaeufer gespeichert hat. -->
+<div id="neuerPlanOverlay" class="popup-overlay versteckt">
+  <div class="popup-box">
+    <div style="font-size:40px;">📋</div>
+    <div>
+      <div style="font-weight:800; font-size:19px; margin-bottom:6px;">Neuer Belegungsplan verfügbar</div>
+      <div style="color:var(--text-dim); font-size:15px; margin-bottom:14px;">Die Anfang-Werte für die nächste Schicht wurden aktualisiert.</div>
+      <button type="button" class="grosser-btn" id="neuerPlanUebernehmenBtn" style="margin-top:0;">🔄 Jetzt aktualisieren</button>
+    </div>
+  </div>
+</div>
+
+<header>
+  <h1 id="titelText">Rundläufer –</h1>
+  <div><span class="status-punkt" id="statusPunkt"></span><span id="statusText" style="font-size:14px; color:var(--text-dim);">Verbinde...</span></div>
+</header>
+
+<div class="container">
+
+  <div class="meldung" id="meldungBox"></div>
+
+  <!-- Kopfbereich: Datum, Schicht, Team -->
+  <div class="karte">
+    <label>Datum</label>
+    <input type="text" id="datumFeld" readonly>
+
+    <label>Schicht</label>
+    <div class="schicht-wahl">
+      <button type="button" class="schicht-btn" id="schichtFruehBtn">☀️ Früh<br><span style="font-weight:400; font-size:14px;">06:00–14:30</span></button>
+      <button type="button" class="schicht-btn" id="schichtSpaetBtn">🌙 Spät<br><span style="font-weight:400; font-size:14px;">14:30–23:00</span></button>
+    </div>
+  </div>
+
+  <div class="karte versteckt" id="vorherigeSchichtKarte" style="text-align:center; background:#eef2ff;">
+    <span style="font-size:15px; color:var(--text-dim);">Produziert von der letzten Schicht (<span id="vorherigeSchichtLabel"></span>):</span>
+    <div id="vorherigeSchichtWert" style="font-size:28px; font-weight:800; color:var(--blau);">–</div>
+  </div>
+
+  <div class="karte">
+    <div class="team-grid">
+      <div>
+        <label>Maschinenführer</label>
+        <input type="text" id="maschinenfuehrerFeld" list="mitarbeiterListe" placeholder="Name oder Personalnummer">
+      </div>
+      <div>
+        <label>Reinklopfer</label>
+        <input type="text" id="reinklopferFeld" list="mitarbeiterListe" placeholder="Name oder Personalnummer">
+      </div>
+      <div>
+        <label>Rausnehmer</label>
+        <input type="text" id="rausnehmerFeld" list="mitarbeiterListe" placeholder="Name oder Personalnummer">
+      </div>
+    </div>
+    <datalist id="mitarbeiterListe"></datalist>
+    <!-- Artikelnummern-Vorschlaege werden NICHT als <datalist> geladen (bei
+         mehreren tausend Eintraegen wird das im Browser unbrauchbar
+         langsam) - stattdessen ein eigenes, performantes Dropdown, das
+         erst ab 2 Zeichen filtert (siehe JavaScript weiter unten). -->
+    <div id="artikelVorschlaege" class="artikel-dropdown versteckt"></div>
+
+    <label>Wartung / Störung / Reparatur (falls vermerkt)</label>
+    <textarea id="stoerungFeld" rows="2" placeholder="z.B. Wartung, Mischkopf reinigen, ab 17:00 zu zweit..."></textarea>
+  </div>
+
+  <!-- Stationen -->
+  <div id="stationenBereich"></div>
+
+  <div class="karte">
+    <button type="button" class="grosser-btn" id="absendenBtn">✅ Schicht absenden</button>
+    <button type="button" class="grosser-btn sekundaer" id="rueckgaengigBtn" style="display:none;">↩️ Zuletzt gesendete Schicht rückgängig machen</button>
+    <button type="button" class="grosser-btn sekundaer" id="autosaveHinweisBtn" style="display:none;">↩️ Zwischenstand wiederhergestellt</button>
+  </div>
+
+</div>
+
+<script>
+// ------------------------------------------------------------------
+// Supabase-Verbindung - dieselbe zentrale Datenbank wie die Haupt-App.
+// ------------------------------------------------------------------
+const SUPABASE_URL = 'https://otmsgyihmrvkwgtgjoui.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im90bXNneWlobXJ2a3dndGdqb3VpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ1NTAxNzYsImV4cCI6MjEwMDEyNjE3Nn0.ixywkFFKk-eTfrBxQysE8nRFJFuloKHYH5IOmkIJfs8';
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// ------------------------------------------------------------------
+// Rundlaeufer-Nummer wird FEST aus der URL gelesen (z.B.
+// tablet.html?rl=4) - dieses Tablet zeigt IMMER nur dieses Formular,
+// keine Auswahlmoeglichkeit fuer andere Rundlaeufer.
+// ------------------------------------------------------------------
+const urlParameter = new URLSearchParams(window.location.search);
+const RUNDLAEUFER_NUMMER = parseInt(urlParameter.get('rl'), 10);
+
+if (!RUNDLAEUFER_NUMMER || RUNDLAEUFER_NUMMER < 1) {
+  document.body.innerHTML = '<div style="padding:40px; text-align:center; font-size:20px;">' +
+    '⚠️ Keine gültige Rundläufer-Nummer in der Adresse gefunden.<br><br>' +
+    'Bitte die Adresse mit "?rl=NUMMER" aufrufen, z.B.:<br>' +
+    '<code>tablet.html?rl=4</code></div>';
+  throw new Error('Keine Rundläufer-Nummer angegeben');
+}
+
+document.getElementById('titelText').textContent = `Rundläufer ${RUNDLAEUFER_NUMMER}`;
+document.title = `Belegungsplan – Rundläufer ${RUNDLAEUFER_NUMMER}`;
+console.log('[Diagnose] Rundläufer-Nummer erkannt:', RUNDLAEUFER_NUMMER);
+
+const AUTOSAVE_SCHLUESSEL = `tablet_autosave_rl${RUNDLAEUFER_NUMMER}`;
+
+function lokalesDatumIso(datum) {
+  const d = datum || new Date();
+  const jahr = d.getFullYear();
+  const monat = String(d.getMonth() + 1).padStart(2, '0');
+  const tag = String(d.getDate()).padStart(2, '0');
+  return `${jahr}-${monat}-${tag}`;
+}
+function lokalesDatumAnzeige(datum) {
+  const d = datum || new Date();
+  const tag = String(d.getDate()).padStart(2, '0');
+  const monat = String(d.getMonth() + 1).padStart(2, '0');
+  const jahr = d.getFullYear();
+  return `${tag}.${monat}.${jahr}`;
+}
+
+document.getElementById('datumFeld').value = lokalesDatumAnzeige();
+
+function zeigeMeldung(typ, text) {
+  const el = document.getElementById('meldungBox');
+  el.className = 'meldung ' + typ;
+  el.textContent = text;
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// ------------------------------------------------------------------
+// Online/Offline-Status sichtbar anzeigen - wichtig, da Tablets evtl.
+// nicht permanent stabiles WLAN haben.
+// ------------------------------------------------------------------
+function aktualisiereVerbindungsstatus() {
+  const punkt = document.getElementById('statusPunkt');
+  const text = document.getElementById('statusText');
+  if (navigator.onLine) {
+    punkt.className = 'status-punkt online';
+    text.textContent = 'Verbunden';
+  } else {
+    punkt.className = 'status-punkt offline';
+    text.textContent = 'Kein Internet - bitte WLAN prüfen';
+  }
+}
+window.addEventListener('online', aktualisiereVerbindungsstatus);
+window.addEventListener('offline', aktualisiereVerbindungsstatus);
+aktualisiereVerbindungsstatus();
+
+// ------------------------------------------------------------------
+// Schicht-Auswahl: automatisch anhand der aktuellen Uhrzeit vorschlagen,
+// aber per Klick aenderbar (z.B. wenn kurz vor/nach dem Wechsel erfasst wird).
+// ------------------------------------------------------------------
+let gewaehlteSchicht = null;
+let autosaveTimeout = null; // muss VOR waehleSchicht() deklariert sein, da diese ueber speichereAutosave() bereits darauf zugreift
+let letzterGesendeterStand = null; // merkt sich den zuletzt abgesendeten Formularstand fuer den "Rückgängig"-Button
+function waehleSchicht(schicht) {
+  gewaehlteSchicht = schicht;
+  document.getElementById('schichtFruehBtn').classList.toggle('aktiv', schicht === 'Früh');
+  document.getElementById('schichtSpaetBtn').classList.toggle('aktiv', schicht === 'Spät');
+  speichereAutosave();
+}
+document.getElementById('schichtFruehBtn').addEventListener('click', () => waehleSchicht('Früh'));
+document.getElementById('schichtSpaetBtn').addEventListener('click', () => waehleSchicht('Spät'));
+// Vorschlag anhand Uhrzeit (6-14 Uhr = Fruehschicht, sonst Spaetschicht)
+const aktuelleStunde = new Date().getHours();
+waehleSchicht(aktuelleStunde >= 6 && aktuelleStunde < 14 ? 'Früh' : 'Spät');
+
+// ------------------------------------------------------------------
+// Mitarbeiterliste aus Supabase laden, fuer die Autovervollstaendigung
+// (datalist) bei den drei Team-Feldern.
+// ------------------------------------------------------------------
+async function ladeMitarbeiterliste() {
+  const { data, error } = await supabaseClient.from('mitarbeiter').select('name, personalnummer').order('name');
+  if (error) { console.error('Mitarbeiterliste konnte nicht geladen werden:', error); return; }
+  const datalist = document.getElementById('mitarbeiterListe');
+  datalist.innerHTML = (data || []).map(m => `<option value="${m.name}">${m.name} (${m.personalnummer})</option>`).join('');
+}
+ladeMitarbeiterliste();
+
+// Artikelnummern fuer die Autovervollstaendigung der "Neue Form"-Felder
+// laden - dieselbe Liste, die auch am Haupt-PC gepflegt wird (bekannte +
+// dort gelernte Formnummern). Wird als <datalist> an jedes Formnummern-
+// Feld gehaengt, damit beim Eintippen passende Vorschlaege erscheinen.
+// Bei mehreren tausend Artikelnummern wird eine <datalist> im Browser
+// unbrauchbar langsam/reagiert nicht. Stattdessen: die Liste einmalig
+// laden (reiner Text, das allein ist unproblematisch), aber NUR bei
+// aktiver Eingabe (ab 2 Zeichen) gefiltert und auf max. 15 Treffer
+// begrenzt in einem eigenen, leichten Dropdown anzeigen.
+let artikelnummernCache = [];
+
+async function ladeArtikelnummernliste() {
+  const { data, error } = await supabaseClient.from('artikelnummern').select('nummer, kunde').order('nummer');
+  if (error) { console.error('Artikelnummernliste konnte nicht geladen werden:', error); return; }
+  artikelnummernCache = data || [];
+}
+ladeArtikelnummernliste();
+
+let artikelDropdownAktivesFeld = null;
+
+function zeigeArtikelVorschlaege(feld) {
+  const suchtext = feld.value.trim().toLowerCase();
+  const dropdown = document.getElementById('artikelVorschlaege');
+  if (suchtext.length < 2) {
+    dropdown.classList.add('versteckt');
+    return;
+  }
+
+  const treffer = artikelnummernCache
+    .filter(a => a.nummer.toLowerCase().includes(suchtext))
+    .slice(0, 15);
+
+  if (treffer.length === 0) {
+    dropdown.classList.add('versteckt');
+    return;
+  }
+
+  dropdown.innerHTML = treffer.map(a =>
+    `<div class="eintrag" data-wert="${a.nummer.replace(/"/g, '&quot;')}">${a.nummer}${a.kunde ? ' <span style="color:var(--text-dim);">- ' + a.kunde + '</span>' : ''}</div>`
+  ).join('');
+
+  // Dropdown direkt unter dem aktiven Feld positionieren
+  const rechteck = feld.getBoundingClientRect();
+  dropdown.style.left = rechteck.left + 'px';
+  dropdown.style.top = (rechteck.bottom + 4) + 'px';
+  dropdown.style.width = Math.max(rechteck.width, 260) + 'px';
+  dropdown.classList.remove('versteckt');
+
+  dropdown.querySelectorAll('.eintrag').forEach(el => {
+    el.addEventListener('mousedown', (e) => {
+      e.preventDefault(); // verhindert, dass das Feld den Fokus VOR dem Klick verliert
+      feld.value = el.dataset.wert;
+      dropdown.classList.add('versteckt');
+      feld.dispatchEvent(new Event('input')); // fuer Formwechsel-Markierung/Autosave
+    });
+  });
+
+  artikelDropdownAktivesFeld = feld;
+}
+
+function versteckeArtikelVorschlaege() {
+  document.getElementById('artikelVorschlaege').classList.add('versteckt');
+}
+
+// An beide "Neue Form"-Felder jeder Station anhaengen, sobald sie
+// gebaut werden (siehe baueStationenFormular).
+function aktiviereArtikelAutocomplete(feldId) {
+  const feld = document.getElementById(feldId);
+  if (!feld) return;
+  feld.addEventListener('input', () => zeigeArtikelVorschlaege(feld));
+  feld.addEventListener('blur', () => setTimeout(versteckeArtikelVorschlaege, 150));
+}
+
+// ------------------------------------------------------------------
+// Aktueller Stand (Form, Groesse, Soll, Anfang) fuer diesen Rundlaeufer
+// aus der zuletzt gespeicherten Vorlage laden - die Vorlagen liegen als
+// Excel-Base64 in Supabase (Tabelle "vorlagen_dateien"), genau wie in
+// der Haupt-App. Fuer das Tablet werden daraus nur die 20 Zeilen
+// (Form/Gr./Soll/Anfang) extrahiert.
+// ------------------------------------------------------------------
+let aktuellerStand = []; // [{station, form, groesse, soll, anfang}, ...]
+
+function base64ZuArrayBuffer(base64) {
+  const binaer = atob(base64);
+  const bytes = new Uint8Array(binaer.length);
+  for (let i = 0; i < binaer.length; i++) bytes[i] = binaer.charCodeAt(i);
+  return bytes.buffer;
+}
+
+// Sucht die zuletzt ABGESCHLOSSENE Schicht dieses Rundlaeufers und zeigt
+// deren Kaestchen-Zahl (produzierte Gesamtmenge) an - als Vergleichswert
+// fuer den neuen Mitarbeiter ("was hat mein Vormann produziert").
+async function ladeVorherigeSchichtKaestchen() {
+  const { data, error } = await supabaseClient
+    .from('schichten')
+    .select('schicht, datum, produziert_gesamt')
+    .eq('rundlaeufer', RUNDLAEUFER_NUMMER)
+    .not('produziert_gesamt', 'is', null)
+    .order('datum', { ascending: false })
+    .order('erstellt_am', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error || !data) return; // keine vorherige Schicht bekannt - Karte bleibt versteckt
+
+  const [j, m, t] = data.datum.split('-');
+  document.getElementById('vorherigeSchichtLabel').textContent = `${data.schicht}, ${t}.${m}.${j}`;
+  document.getElementById('vorherigeSchichtWert').textContent = data.produziert_gesamt;
+  document.getElementById('vorherigeSchichtKarte').classList.remove('versteckt');
+}
+
+async function ladeAktuellenStand() {
+  console.log('[Diagnose] ladeAktuellenStand() gestartet für Rundläufer', RUNDLAEUFER_NUMMER);
+  const bereich = document.getElementById('stationenBereich');
+  bereich.innerHTML = '<div class="karte" style="text-align:center; padding:30px;">⏳ Lade aktuellen Stand...</div>';
+
+  const { data, error } = await supabaseClient
+    .from('vorlagen_dateien')
+    .select('base64_inhalt')
+    .eq('rundlaeufer', RUNDLAEUFER_NUMMER)
+    .maybeSingle();
+
+  console.log('[Diagnose] Supabase-Antwort erhalten. error:', error, 'data vorhanden:', !!data, 'Länge base64:', data?.base64_inhalt?.length);
+
+  if (error || !data) {
+    const hinweis = `❌ Für Rundläufer ${RUNDLAEUFER_NUMMER} ist noch keine Vorlage in der Datenbank hinterlegt. Bitte am Haupt-PC in den Einstellungen eine Vorlage hochladen, dann diese Seite neu laden.`;
+    zeigeMeldung('fehler', hinweis);
+    bereich.innerHTML = `<div class="karte" style="text-align:center; padding:30px; color:var(--rot); font-weight:600;">${hinweis}</div>`;
+    return;
+  }
+
+  try {
+    console.log('[Diagnose] Beginne Excel-Datei zu lesen...');
+    const buf = base64ZuArrayBuffer(data.base64_inhalt);
+    console.log('[Diagnose] Base64 dekodiert, Bytes:', buf.byteLength);
+    const wb = XLSX.read(buf, { type: 'array' });
+    console.log('[Diagnose] Excel-Datei gelesen. Sheets:', wb.SheetNames);
+    const ws = wb.Sheets[wb.SheetNames.includes('Berrechnen') ? 'Berrechnen' : wb.SheetNames[0]];
+    const ERSTE_STATIONSZEILE = 6;
+    aktuellerStand = [];
+    for (let s = 1; s <= 20; s++) {
+      const zeile = ERSTE_STATIONSZEILE + (s - 1);
+      const lese = (spalte) => {
+        const zelle = ws[spalte + zeile];
+        return zelle ? zelle.v : '';
+      };
+      aktuellerStand.push({
+        station: s,
+        form: lese('B'),
+        groesse: lese('C'),
+        soll: lese('D'),
+        anfang: parseFloat(lese('E')) || 0,
+      });
+    }
+    console.log('[Diagnose] Stationen extrahiert:', aktuellerStand.length, aktuellerStand[0]);
+    baueStationenFormular();
+    console.log('[Diagnose] baueStationenFormular() abgeschlossen.');
+  } catch (fehler) {
+    console.error('[Diagnose] FEHLER beim Lesen der Vorlage:', fehler);
+    const hinweis = '❌ Die hinterlegte Vorlage konnte nicht gelesen werden: ' + fehler.message + '. Bitte am Haupt-PC prüfen.';
+    zeigeMeldung('fehler', hinweis);
+    bereich.innerHTML = `<div class="karte" style="text-align:center; padding:30px; color:var(--rot); font-weight:600;">${hinweis}</div>`;
+  }
+}
+
+// ------------------------------------------------------------------
+// Formular fuer alle 20 Stationen aufbauen
+// ------------------------------------------------------------------
+function baueStationenFormular() {
+  const bereich = document.getElementById('stationenBereich');
+
+  const kopfzeile = `
+    <tr>
+      <th>Station</th>
+      <th>Form</th>
+      <th>Gr.</th>
+      <th>Soll</th>
+      <th>Anfang</th>
+      <th>Ende</th>
+      <th>Auss.</th>
+      <th></th>
+      <th>1. Formwechsel<br>Neue Form</th>
+      <th>Neue Gr.</th>
+      <th>Neues Soll</th>
+      <th>Paar</th>
+      <th>Auss.</th>
+      <th>Kunde</th>
+      <th></th>
+      <th>2. Formwechsel<br>Neue Form</th>
+      <th>Neue Gr.</th>
+      <th>Neues Soll</th>
+      <th>Paar</th>
+      <th>Auss.</th>
+      <th>Kunde</th>
+    </tr>`;
+
+  const zeilen = aktuellerStand.map(st => `
+    <tr id="stationZeile${st.station}">
+      <td>${st.station}</td>
+      <td class="spalte-form-info"><input type="text" class="eingabe-form" id="form_${st.station}" value="${st.form || ''}" tabindex="-1"></td>
+      <td><input type="text" id="groesse_${st.station}" value="${st.groesse || ''}" tabindex="-1"></td>
+      <td><input type="text" id="soll_${st.station}" value="${st.soll || ''}" tabindex="-1"></td>
+      <td class="spalte-anfang">${st.anfang}</td>
+      <td><input type="number" inputmode="numeric" id="ende_${st.station}" placeholder="0"></td>
+      <td><input type="number" inputmode="numeric" id="ausschuss_${st.station}" placeholder="0"></td>
+      <td class="formwechsel-toggle-zelle"><button type="button" id="formwechselToggle_${st.station}" tabindex="-1">🔄</button></td>
+      <td><input type="text" class="eingabe-form" id="neueForm_${st.station}" placeholder="z.B. M 7361300076" tabindex="-1" autocomplete="off"></td>
+      <td><input type="text" id="neueGr_${st.station}" tabindex="-1"></td>
+      <td><input type="text" id="neuesSoll_${st.station}" tabindex="-1"></td>
+      <td><input type="number" inputmode="numeric" id="neuesPaar_${st.station}" placeholder="0" tabindex="-1"></td>
+      <td><input type="number" inputmode="numeric" id="neuerAusschuss_${st.station}" placeholder="0" tabindex="-1"></td>
+      <td><input type="text" class="eingabe-breit" id="kunde_${st.station}" placeholder="optional" tabindex="-1"></td>
+      <td class="formwechsel-toggle-zelle"><button type="button" id="formwechsel2Toggle_${st.station}" tabindex="-1">🔄</button></td>
+      <td><input type="text" class="eingabe-form" id="neueForm2_${st.station}" placeholder="z.B. M 7361300076" tabindex="-1" autocomplete="off"></td>
+      <td><input type="text" id="neueGr2_${st.station}" tabindex="-1"></td>
+      <td><input type="text" id="neuesSoll2_${st.station}" tabindex="-1"></td>
+      <td><input type="number" inputmode="numeric" id="neuesPaar2_${st.station}" placeholder="0" tabindex="-1"></td>
+      <td><input type="number" inputmode="numeric" id="neuerAusschuss2_${st.station}" placeholder="0" tabindex="-1"></td>
+      <td><input type="text" class="eingabe-breit" id="kunde2_${st.station}" placeholder="optional" tabindex="-1"></td>
+    </tr>`).join('');
+
+  bereich.innerHTML = `
+    <div class="hinweis-scroll">↔️ Nach rechts wischen/scrollen für Formwechsel-Felder (auch ein 2. Formwechsel möglich)</div>
+    <div class="tabellen-wrapper">
+      <table class="stationen-tabelle">
+        <thead>${kopfzeile}</thead>
+        <tbody>${zeilen}</tbody>
+      </table>
+    </div>
+    <div class="karte" id="gesamtKaestchen" style="margin-top:16px; text-align:center;">
+      <label style="margin-bottom:4px;">Kästchen-Zahl (gesamt produziert)</label>
+      <div id="gesamtKaestchenWert" style="font-size:32px; font-weight:800; color:var(--gruen);">0</div>
+    </div>`;
+
+  // Formwechsel-Zelle hervorheben, sobald "Neue Form" ausgefuellt wird -
+  // die Formwechsel-Spalten selbst bleiben immer sichtbar (Tabellenform
+  // laesst sich schlecht auf-/zuklappen), der Button dient nur als
+  // Sprungmarke zum horizontalen Scrollen.
+  aktuellerStand.forEach(st => {
+    const zeile = document.getElementById(`stationZeile${st.station}`);
+
+    const toggleBtn = document.getElementById(`formwechselToggle_${st.station}`);
+    const neueFormFeld = document.getElementById(`neueForm_${st.station}`);
+    toggleBtn.addEventListener('click', () => {
+      neueFormFeld.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+      neueFormFeld.focus();
+    });
+    neueFormFeld.addEventListener('input', () => {
+      zeile.classList.toggle('formwechsel-aktiv', neueFormFeld.value.trim().length > 0);
+    });
+
+    const toggle2Btn = document.getElementById(`formwechsel2Toggle_${st.station}`);
+    const neueForm2Feld = document.getElementById(`neueForm2_${st.station}`);
+    toggle2Btn.addEventListener('click', () => {
+      neueForm2Feld.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+      neueForm2Feld.focus();
+    });
+
+    // Vorschlagsliste fuer Formnummern (eigenes, performantes Dropdown
+    // statt datalist - siehe aktiviereArtikelAutocomplete weiter oben).
+    aktiviereArtikelAutocomplete(`neueForm_${st.station}`);
+    aktiviereArtikelAutocomplete(`neueForm2_${st.station}`);
+
+    // Ende/Ausschuss aktualisieren live die Kaestchen-Gesamtsumme
+    document.getElementById(`ende_${st.station}`).addEventListener('input', aktualisiereGesamtKaestchen);
+  });
+
+  // Tab-/Enter-Reihenfolge festlegen: Ende -> Ausschuss -> naechste
+  // Station Ende -> Ausschuss -> ... (Formwechsel-Felder werden dabei
+  // uebersprungen, da sie nur bei Bedarf ausgefuellt werden). Sowohl die
+  // Tab-Taste (per tabindex) als auch Enter springen in dieser
+  // Reihenfolge. Beim letzten Ausschuss-Feld (Station 20) landet der
+  // Fokus auf dem "Absenden"-Button.
+  let tabindexZaehler = 1;
+  aktuellerStand.forEach((st, index) => {
+    const endeFeld = document.getElementById(`ende_${st.station}`);
+    const ausschussFeld = document.getElementById(`ausschuss_${st.station}`);
+    endeFeld.tabIndex = tabindexZaehler++;
+    ausschussFeld.tabIndex = tabindexZaehler++;
+
+    const springeZuNaechstemEnde = () => {
+      const naechsteStation = aktuellerStand[index + 1];
+      if (naechsteStation) {
+        document.getElementById(`ende_${naechsteStation.station}`)?.focus();
+      } else {
+        document.getElementById('absendenBtn')?.focus();
+      }
+    };
+
+    endeFeld.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      ausschussFeld.focus();
+    });
+    ausschussFeld.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      springeZuNaechstemEnde();
+    });
+  });
+
+  // Nach dem Aufbau: Autosave-Wiederherstellung versuchen
+  stelleAutosaveWiederHer();
+
+  // Auf jede Eingabe hin automatisch zwischenspeichern
+  bereich.addEventListener('input', speichereAutosave);
+}
+
+// ------------------------------------------------------------------
+// Autosave im lokalen Speicher DIESES Tablets - falls die Seite
+// versehentlich neu geladen wird oder das Tablet kurz die Verbindung
+// verliert, geht die bereits eingegebene Schicht nicht verloren.
+// ------------------------------------------------------------------
+function sammleFormularDaten() {
+  return {
+    schicht: gewaehlteSchicht,
+    maschinenfuehrer: document.getElementById('maschinenfuehrerFeld').value,
+    reinklopfer: document.getElementById('reinklopferFeld').value,
+    rausnehmer: document.getElementById('rausnehmerFeld').value,
+    stoerung: document.getElementById('stoerungFeld').value,
+    stationen: aktuellerStand.map(st => ({
+      station: st.station,
+      form: document.getElementById(`form_${st.station}`)?.value || '',
+      groesse: document.getElementById(`groesse_${st.station}`)?.value || '',
+      soll: document.getElementById(`soll_${st.station}`)?.value || '',
+      ende: document.getElementById(`ende_${st.station}`)?.value || '',
+      ausschuss: document.getElementById(`ausschuss_${st.station}`)?.value || '',
+      neueForm: document.getElementById(`neueForm_${st.station}`)?.value || '',
+      neueGr: document.getElementById(`neueGr_${st.station}`)?.value || '',
+      neuesSoll: document.getElementById(`neuesSoll_${st.station}`)?.value || '',
+      neuesPaar: document.getElementById(`neuesPaar_${st.station}`)?.value || '',
+      neuerAusschuss: document.getElementById(`neuerAusschuss_${st.station}`)?.value || '',
+      kunde: document.getElementById(`kunde_${st.station}`)?.value || '',
+      neueForm2: document.getElementById(`neueForm2_${st.station}`)?.value || '',
+      neueGr2: document.getElementById(`neueGr2_${st.station}`)?.value || '',
+      neuesSoll2: document.getElementById(`neuesSoll2_${st.station}`)?.value || '',
+      neuesPaar2: document.getElementById(`neuesPaar2_${st.station}`)?.value || '',
+      neuerAusschuss2: document.getElementById(`neuerAusschuss2_${st.station}`)?.value || '',
+      kunde2: document.getElementById(`kunde2_${st.station}`)?.value || '',
+    })),
+  };
+}
+
+// Berechnet live die Gesamt-Kaestchen-Zahl (analog zur Haupt-App): pro
+// Station "Ende minus Anfang", zusaetzlich die bereits produzierten
+// Paar-Mengen bei Formwechsel(n) - ein Formwechsel bedeutet, dass die
+// alte Form bis zum Wechsel lief und danach die neue Form weiterzaehlt,
+// daher wird deren "Paar"-Wert einfach addiert (er ist bereits die
+// eigenstaendig gezaehlte Menge der neuen Form).
+function aktualisiereGesamtKaestchen() {
+  let summe = 0;
+  aktuellerStand.forEach(st => {
+    const anfang = st.anfang || 0;
+    const ende = parseFloat(document.getElementById(`ende_${st.station}`)?.value) || 0;
+    const neuesPaar = parseFloat(document.getElementById(`neuesPaar_${st.station}`)?.value) || 0;
+    const neuesPaar2 = parseFloat(document.getElementById(`neuesPaar2_${st.station}`)?.value) || 0;
+    if (ende > 0) {
+      summe += Math.max(0, ende - anfang) + neuesPaar + neuesPaar2;
+    }
+  });
+  const anzeige = document.getElementById('gesamtKaestchenWert');
+  if (anzeige) anzeige.textContent = summe;
+}
+
+function speichereAutosave() {
+  clearTimeout(autosaveTimeout);
+  autosaveTimeout = setTimeout(() => {
+    try {
+      localStorage.setItem(AUTOSAVE_SCHLUESSEL, JSON.stringify(sammleFormularDaten()));
+    } catch (e) { /* unkritisch, Autosave ist nur Komfort */ }
+  }, 400);
+}
+
+function stelleAutosaveWiederHer() {
+  const roh = localStorage.getItem(AUTOSAVE_SCHLUESSEL);
+  if (!roh) return;
+  try {
+    const daten = JSON.parse(roh);
+    if (daten.schicht) waehleSchicht(daten.schicht);
+    document.getElementById('maschinenfuehrerFeld').value = daten.maschinenfuehrer || '';
+    document.getElementById('reinklopferFeld').value = daten.reinklopfer || '';
+    document.getElementById('rausnehmerFeld').value = daten.rausnehmer || '';
+    document.getElementById('stoerungFeld').value = daten.stoerung || '';
+    (daten.stationen || []).forEach(st => {
+      const setzeWert = (id, wert) => { const el = document.getElementById(id); if (el && wert) el.value = wert; };
+      setzeWert(`form_${st.station}`, st.form);
+      setzeWert(`groesse_${st.station}`, st.groesse);
+      setzeWert(`soll_${st.station}`, st.soll);
+      setzeWert(`ende_${st.station}`, st.ende);
+      setzeWert(`ausschuss_${st.station}`, st.ausschuss);
+      setzeWert(`neueForm_${st.station}`, st.neueForm);
+      setzeWert(`neueGr_${st.station}`, st.neueGr);
+      setzeWert(`neuesSoll_${st.station}`, st.neuesSoll);
+      setzeWert(`neuesPaar_${st.station}`, st.neuesPaar);
+      setzeWert(`neuerAusschuss_${st.station}`, st.neuerAusschuss);
+      setzeWert(`kunde_${st.station}`, st.kunde);
+      setzeWert(`neueForm2_${st.station}`, st.neueForm2);
+      setzeWert(`neueGr2_${st.station}`, st.neueGr2);
+      setzeWert(`neuesSoll2_${st.station}`, st.neuesSoll2);
+      setzeWert(`neuesPaar2_${st.station}`, st.neuesPaar2);
+      setzeWert(`neuerAusschuss2_${st.station}`, st.neuerAusschuss2);
+      setzeWert(`kunde2_${st.station}`, st.kunde2);
+      if (st.neueForm) {
+        document.getElementById(`stationZeile${st.station}`)?.classList.add('formwechsel-aktiv');
+      }
+    });
+    aktualisiereGesamtKaestchen();
+    document.getElementById('autosaveHinweisBtn').style.display = 'block';
+    zeigeMeldung('info', 'ℹ️ Ein zuvor unvollständig gesendeter Stand wurde wiederhergestellt.');
+  } catch (e) { console.error('Autosave konnte nicht wiederhergestellt werden:', e); }
+}
+
+function loescheAutosave() {
+  localStorage.removeItem(AUTOSAVE_SCHLUESSEL);
+}
+
+// ------------------------------------------------------------------
+// Absenden: Schicht in die Datenbank schreiben (Tabelle "schichten"),
+// analog zum Format, das die Haupt-App auch fuer die KI-Auswertung
+// nutzt - damit "Belegungsplan erstellen" am Haupt-PC diese Daten
+// genauso verarbeiten kann wie einen gescannten Zettel.
+// ------------------------------------------------------------------
+// ------------------------------------------------------------------
+// "Rückgängig"-Funktion: erscheint kurz nach erfolgreichem Absenden,
+// damit ein versehentliches Absenden (bevor alles korrekt eingetragen
+// war) rueckgaengig gemacht werden kann. Stellt das Formular 1:1 wieder
+// her und loescht den gerade erst gesendeten Datenbank-Eintrag wieder,
+// damit die Schicht erneut bearbeitet und gesendet werden kann.
+let rueckgaengigTimeout = null;
+function zeigeRueckgaengigButton() {
+  const btn = document.getElementById('rueckgaengigBtn');
+  btn.style.display = 'block';
+  if (rueckgaengigTimeout) clearTimeout(rueckgaengigTimeout);
+  // Nach 30 Sekunden automatisch wieder ausblenden - danach gilt die
+  // Schicht als endgueltig gesendet.
+  rueckgaengigTimeout = setTimeout(() => {
+    btn.style.display = 'none';
+    letzterGesendeterStand = null;
+  }, 30000);
+}
+
+document.getElementById('rueckgaengigBtn').addEventListener('click', async () => {
+  if (!letzterGesendeterStand) return;
+  const btn = document.getElementById('rueckgaengigBtn');
+  btn.disabled = true;
+  btn.textContent = 'Wird rückgängig gemacht...';
+
+  try {
+    // Den gerade gesendeten Datenbank-Eintrag wieder loeschen, damit er
+    // nicht faelschlich am Haupt-PC als "vom Tablet gesendet" auftaucht,
+    // waehrend hier noch weiter korrigiert wird.
+    if (letzterGesendeterStand.schichtId) {
+      const { error } = await supabaseClient.from('schichten').delete().eq('id', letzterGesendeterStand.schichtId);
+      if (error) throw error;
+    }
+
+    // Formular-Werte 1:1 wiederherstellen (Team, Störung, alle Stationen).
+    const formular = letzterGesendeterStand.formular;
+    waehleSchicht(letzterGesendeterStand.schicht);
+    document.getElementById('maschinenfuehrerFeld').value = formular.maschinenfuehrer || '';
+    document.getElementById('reinklopferFeld').value = formular.reinklopfer || '';
+    document.getElementById('rausnehmerFeld').value = formular.rausnehmer || '';
+    document.getElementById('stoerungFeld').value = formular.stoerung || '';
+    (formular.stationen || []).forEach(st => {
+      const setzeWert = (id, wert) => { const el = document.getElementById(id); if (el) el.value = wert || ''; };
+      setzeWert(`ende_${st.station}`, st.ende);
+      setzeWert(`ausschuss_${st.station}`, st.ausschuss);
+      setzeWert(`neueForm_${st.station}`, st.neueForm);
+      setzeWert(`neueGr_${st.station}`, st.neueGr);
+      setzeWert(`neuesSoll_${st.station}`, st.neuesSoll);
+      setzeWert(`neuesPaar_${st.station}`, st.neuesPaar);
+      setzeWert(`neuerAusschuss_${st.station}`, st.neuerAusschuss);
+      setzeWert(`kunde_${st.station}`, st.kunde);
+      setzeWert(`neueForm2_${st.station}`, st.neueForm2);
+      setzeWert(`neueGr2_${st.station}`, st.neueGr2);
+      setzeWert(`neuesSoll2_${st.station}`, st.neuesSoll2);
+      setzeWert(`neuesPaar2_${st.station}`, st.neuesPaar2);
+      setzeWert(`neuerAusschuss2_${st.station}`, st.neuerAusschuss2);
+      setzeWert(`kunde2_${st.station}`, st.kunde2);
+      const formGeaendert = (st.form || '').trim().length > 0;
+      const zeile = document.getElementById(`stationZeile${st.station}`);
+      if ((st.neueForm || '').trim() && zeile) zeile.classList.add('formwechsel-aktiv');
+    });
+    aktualisiereGesamtKaestchen();
+    speichereAutosave();
+
+    if (rueckgaengigTimeout) clearTimeout(rueckgaengigTimeout);
+    btn.style.display = 'none';
+    letzterGesendeterStand = null;
+    zeigeMeldung('info', 'ℹ️ Zuletzt gesendete Schicht wurde rückgängig gemacht - bitte korrigieren und erneut absenden.');
+  } catch (fehler) {
+    console.error('Rückgängig machen fehlgeschlagen:', fehler);
+    zeigeMeldung('fehler', '❌ Rückgängig machen fehlgeschlagen: ' + fehler.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '↩️ Zuletzt gesendete Schicht rückgängig machen';
+  }
+});
+
+document.getElementById('absendenBtn').addEventListener('click', async () => {
+  if (!gewaehlteSchicht) {
+    zeigeMeldung('fehler', '❌ Bitte zuerst Früh- oder Spätschicht auswählen.');
+    return;
+  }
+
+  const formular = sammleFormularDaten();
+  const heuteIso = lokalesDatumIso();
+  const heuteAnzeige = lokalesDatumAnzeige();
+
+  // Stationen-Array im selben Format wie die Haupt-App erwartet
+  // ("ausgewerteteDaten.stationen") zusammenbauen. Falls Form/Gr./Soll
+  // vom Mitarbeiter geaendert wurden (weil sich ein Fehler in der
+  // hinterlegten Vorlage eingeschlichen hatte), wird das als
+  // "korrektur_*" mitgeschickt - genau wie am Haupt-PC bei einer
+  // Korrektur eines KI-erkannten Zettels.
+  const stationenFuerDatenbank = aktuellerStand.map(st => {
+    const eingabe = formular.stationen.find(f => f.station === st.station) || {};
+    const formGeaendert = (eingabe.form || '').trim() !== (st.form || '').trim();
+    const groesseGeaendert = (eingabe.groesse || '').trim() !== String(st.groesse || '').trim();
+    const sollGeaendert = (eingabe.soll || '').trim() !== String(st.soll || '').trim();
+    return {
+      station: st.station,
+      ende: parseFloat(eingabe.ende) || 0,
+      ausschuss: parseFloat(eingabe.ausschuss) || 0,
+      neue_form: (eingabe.neueForm || '').trim(),
+      neue_gr: (eingabe.neueGr || '').trim(),
+      neues_soll: (eingabe.neuesSoll || '').trim(),
+      neues_paar: parseFloat(eingabe.neuesPaar) || 0,
+      neuer_ausschuss: parseFloat(eingabe.neuerAusschuss) || 0,
+      kunde: (eingabe.kunde || '').trim(),
+      korrektur_form: formGeaendert ? (eingabe.form || '').trim() : '',
+      korrektur_gr: groesseGeaendert ? (eingabe.groesse || '').trim() : '',
+      korrektur_soll: sollGeaendert ? (eingabe.soll || '').trim() : '',
+      korrektur_anfang: String(st.anfang),
+    };
+  });
+
+  // Zweiter Formwechsel (falls an einer Station mehrmals gewechselt
+  // wurde) als eigenes Array - dasselbe Format wie am Haupt-PC.
+  const zweiteFormwechselFuerDatenbank = [];
+  aktuellerStand.forEach(st => {
+    const eingabe = formular.stationen.find(f => f.station === st.station) || {};
+    if ((eingabe.neueForm2 || '').trim()) {
+      zweiteFormwechselFuerDatenbank.push({
+        station: st.station,
+        menge: parseFloat(eingabe.neuesPaar2) || 0,
+        neue_form: (eingabe.neueForm2 || '').trim(),
+        neue_gr: (eingabe.neueGr2 || '').trim(),
+        neues_soll: (eingabe.neuesSoll2 || '').trim(),
+        neuer_ausschuss: parseFloat(eingabe.neuerAusschuss2) || 0,
+        kunde: (eingabe.kunde2 || '').trim(),
+      });
+    }
+  });
+
+  const absendenBtn = document.getElementById('absendenBtn');
+  absendenBtn.disabled = true;
+  absendenBtn.textContent = 'Wird gesendet...';
+
+  try {
+    const { error } = await supabaseClient
+      .from('schichten')
+      .upsert({
+        rundlaeufer: RUNDLAEUFER_NUMMER,
+        datum: heuteIso,
+        schicht: gewaehlteSchicht,
+        maschinenfuehrer: formular.maschinenfuehrer,
+        reinklopfer: formular.reinklopfer,
+        rausnehmer: formular.rausnehmer,
+        stoerungsvermerk: formular.stoerung,
+        stationen: stationenFuerDatenbank,
+        status: 'offen',
+        quelle: 'tablet',
+        aktualisiert_am: new Date().toISOString(),
+      }, { onConflict: 'rundlaeufer,datum,schicht' });
+
+    if (error) throw error;
+
+    const gesendeteSchichtId = (await supabaseClient
+      .from('schichten')
+      .select('id')
+      .eq('rundlaeufer', RUNDLAEUFER_NUMMER)
+      .eq('datum', heuteIso)
+      .eq('schicht', gewaehlteSchicht)
+      .maybeSingle()).data?.id;
+
+    // Kompletten, gerade gesendeten Formularstand sichern, damit
+    // "Rückgängig" ihn 1:1 wiederherstellen kann - inklusive der
+    // urspruenglichen Formular-Werte (nicht nur die an die Datenbank
+    // geschickte, leicht andere Struktur).
+    letzterGesendeterStand = { formular, schicht: gewaehlteSchicht, schichtId: gesendeteSchichtId };
+
+    loescheAutosave();
+    zeigeMeldung('erfolg', `✅ Schicht (${gewaehlteSchicht}, ${heuteAnzeige}) erfolgreich gesendet! Die Auswertung erfolgt am Haupt-PC.`);
+    document.getElementById('autosaveHinweisBtn').style.display = 'none';
+    zeigeRueckgaengigButton();
+
+    // Formular fuer die naechste Erfassung leeren - INKLUSIVE der
+    // Team-Felder (Maschinenfuehrer, Reinklopfer, Rausnehmer), da sich
+    // das Team von Schicht zu Schicht aendert und ein stehen gebliebener
+    // alter Name sonst leicht versehentlich fuer die naechste Schicht
+    // mit uebernommen wird.
+    document.getElementById('maschinenfuehrerFeld').value = '';
+    document.getElementById('reinklopferFeld').value = '';
+    document.getElementById('rausnehmerFeld').value = '';
+    document.getElementById('stoerungFeld').value = '';
+    aktuellerStand.forEach(st => {
+      ['ende','ausschuss','neueForm','neueGr','neuesSoll','neuesPaar','neuerAusschuss','kunde','neueForm2','neueGr2','neuesSoll2','neuesPaar2','neuerAusschuss2','kunde2'].forEach(feld => {
+        const id = { ende:'ende_', ausschuss:'ausschuss_', neueForm:'neueForm_', neueGr:'neueGr_', neuesSoll:'neuesSoll_', neuesPaar:'neuesPaar_', neuerAusschuss:'neuerAusschuss_', kunde:'kunde_', neueForm2:'neueForm2_', neueGr2:'neueGr2_', neuesSoll2:'neuesSoll2_', neuesPaar2:'neuesPaar2_', neuerAusschuss2:'neuerAusschuss2_', kunde2:'kunde2_' }[feld] + st.station;
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+      });
+      document.getElementById(`stationZeile${st.station}`)?.classList.remove('formwechsel-aktiv');
+    });
+    aktualisiereGesamtKaestchen();
+  } catch (fehler) {
+    console.error('Schicht konnte nicht gesendet werden:', fehler);
+    zeigeMeldung('fehler', '❌ Senden fehlgeschlagen: ' + fehler.message + ' - der eingegebene Stand bleibt auf diesem Tablet gespeichert, bitte erneut versuchen.');
+  } finally {
+    absendenBtn.disabled = false;
+    absendenBtn.textContent = '✅ Schicht absenden';
+  }
+});
+
+document.getElementById('autosaveHinweisBtn').addEventListener('click', () => {
+  document.getElementById('autosaveHinweisBtn').style.display = 'none';
+});
+
+// ------------------------------------------------------------------
+// Live-Benachrichtigung: sobald der Haupt-PC eine neue Vorlage
+// (aktualisierte Anfang-Werte) fuer DIESEN Rundlaeufer speichert,
+// erscheint ein Pop-up. Ueberwacht per Supabase Realtime nur
+// UPDATE/INSERT-Ereignisse WAEHREND dieser Sitzung - ein einfaches
+// Neuladen der Seite loest das Pop-up nicht aus, nur eine tatsaechliche
+// Aenderung, waehrend die Seite bereits offen ist.
+const vorlagenKanal = supabaseClient
+  .channel(`vorlage-rl${RUNDLAEUFER_NUMMER}`)
+  .on(
+    'postgres_changes',
+    { event: '*', schema: 'public', table: 'vorlagen_dateien', filter: `rundlaeufer=eq.${RUNDLAEUFER_NUMMER}` },
+    () => {
+      document.getElementById('neuerPlanOverlay').classList.remove('versteckt');
+    }
+  )
+  .subscribe();
+
+document.getElementById('neuerPlanUebernehmenBtn').addEventListener('click', () => {
+  window.location.reload();
+});
+
+// Start
+ladeAktuellenStand();
+ladeVorherigeSchichtKaestchen();
+</script>
+</body>
+</html>
