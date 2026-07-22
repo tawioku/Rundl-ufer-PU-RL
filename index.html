@@ -370,6 +370,13 @@
   <!-- Stationen -->
   <div id="stationenBereich"></div>
 
+  <!-- Deutlicher Abstand zu den Buttons darunter - verhindert, dass
+       man beim Scrollen INNERHALB der Stationen-Tabelle (die einen
+       eigenen, begrenzten Scrollbereich hat) versehentlich auf
+       "Schicht absenden" o.ae. rutscht, nur weil man die letzte
+       Station sehen wollte. -->
+  <div style="height:40px;"></div>
+
   <div class="karte">
     <button type="button" class="grosser-btn" id="absendenBtn">✅ Schicht absenden</button>
     <button type="button" class="grosser-btn sekundaer" id="rueckgaengigBtn" style="display:none;">↩️ Zuletzt gesendete Schicht rückgängig machen</button>
@@ -458,6 +465,7 @@ aktualisiereVerbindungsstatus();
 let gewaehlteSchicht = null;
 let autosaveTimeout = null; // muss VOR waehleSchicht() deklariert sein, da diese ueber speichereAutosave() bereits darauf zugreift
 let cloudAutosaveTimeout = null; // fuer die zusaetzliche Cloud-Entwurfs-Sicherung (robuster als nur localStorage)
+let ladeVorgangAktiv = false; // verhindert parallele ladeAktuellenStand()-Durchlaeufe, siehe dort
 let letzterGesendeterStand = null; // merkt sich den zuletzt abgesendeten Formularstand fuer den "Rückgängig"-Button
 function waehleSchicht(schicht) {
   gewaehlteSchicht = schicht;
@@ -689,6 +697,33 @@ async function ladeVorherigeSchichtKaestchen() {
 }
 
 async function ladeAktuellenStand(versuch = 1) {
+  // WICHTIG: verhindert, dass zwei ladeAktuellenStand()-Durchlaeufe
+  // gleichzeitig aktiv sind (z.B. wenn die Funktion durch einen
+  // zweiten, ueberlappenden Aufruf erneut gestartet wird, waehrend ein
+  // vorheriger Versuch - etwa nach einem Netzwerkfehler - noch laeuft).
+  // Ohne diese Sperre konnte ein spaeter startender, aber schneller
+  // fertig werdender zweiter Durchlauf die Tabelle NOCHMAL mit leeren
+  // Feldern aufbauen und dabei einen bereits erfolgreich
+  // wiederhergestellten (und eventuell schon weiter befuellten)
+  // Zwischenstand ueberschreiben. Ein try/finally sorgt dafuer, dass
+  // die Sperre an JEDEM Ausstiegspunkt (Erfolg, Fehler, mehrere
+  // return-Stellen) garantiert wieder freigegeben wird.
+  if (versuch === 1) {
+    if (ladeVorgangAktiv) {
+      console.log('[Diagnose] ladeAktuellenStand() uebersprungen - ein Durchlauf laeuft bereits.');
+      return;
+    }
+    ladeVorgangAktiv = true;
+  }
+
+  try {
+    await ladeAktuellenStandInnen(versuch);
+  } finally {
+    if (versuch === 1) ladeVorgangAktiv = false;
+  }
+}
+
+async function ladeAktuellenStandInnen(versuch) {
   const MAX_VERSUCHE = 4;
   console.log(`[Diagnose] ladeAktuellenStand() gestartet für Rundläufer ${RUNDLAEUFER_NUMMER} (Versuch ${versuch}/${MAX_VERSUCHE})`);
   const bereich = document.getElementById('stationenBereich');
@@ -708,12 +743,14 @@ async function ladeAktuellenStand(versuch = 1) {
   // damit die Autosave-Wiederherstellung mit bereits eingetragenen
   // Werten!) gar nicht erst erreicht, obwohl der lokale Zwischenstand
   // die ganze Zeit unversehrt vorhanden war. Stattdessen automatisch
-  // mit kurzer, wachsender Pause erneut versuchen.
+  // mit kurzer, wachsender Pause erneut versuchen. WICHTIG: der naechste
+  // Versuch wird DIREKT (nicht ueber die aeussere ladeAktuellenStand())
+  // aufgerufen, damit die Sperre nicht zwischendurch freigegeben wird.
   if (error) {
     if (versuch < MAX_VERSUCHE) {
       bereich.innerHTML = `<div class="karte" style="text-align:center; padding:30px;">⏳ Verbindung wird wiederhergestellt, versuche erneut...</div>`;
       await new Promise(resolve => setTimeout(resolve, versuch * 1500));
-      return ladeAktuellenStand(versuch + 1);
+      return ladeAktuellenStandInnen(versuch + 1);
     }
     const hinweis = `❌ Die Vorlage konnte auch nach mehreren Versuchen nicht geladen werden - bitte WLAN-Verbindung prüfen und die Seite neu laden. Ein bereits eingetragener Zwischenstand bleibt auf diesem Gerät gespeichert und geht dabei nicht verloren.`;
     zeigeMeldung('fehler', hinweis);
@@ -1178,6 +1215,14 @@ async function stelleAutosaveWiederHer() {
       zeigeMeldung('info', quelleCloud
         ? 'ℹ️ Ein zuvor unvollständig gesendeter Stand wurde aus der Cloud-Sicherung wiederhergestellt (lokaler Speicher war leer).'
         : 'ℹ️ Ein zuvor unvollständig gesendeter Stand wurde wiederhergestellt.');
+      // Automatisch nach kurzer Zeit ausblenden, statt dass der
+      // Hinweis-Button dauerhaft stehen bleibt und manuell weggetippt
+      // werden muss - der Zwischenstand selbst ist ja bereits sichtbar
+      // im Formular eingetragen, der Hinweis dient nur der kurzen
+      // Information direkt nach dem Laden.
+      setTimeout(() => {
+        document.getElementById('autosaveHinweisBtn').style.display = 'none';
+      }, 8000);
       // Den wiederhergestellten Stand direkt auch wieder lokal sichern,
       // damit er ab jetzt schnell verfuegbar ist.
       speichereAutosaveSofort();
