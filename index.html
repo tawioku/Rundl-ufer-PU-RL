@@ -24,7 +24,7 @@
   :root {
     --gruen: #1c7c3f;
     --gruen-hell: #e6f4ea;
-    --gelb-hell: #fff6d9;
+    --gelb-hell: #c7d9f5;
     --rot: #c0392b;
     --rot-hell: #fbe9e7;
     --text: #1f2430;
@@ -202,7 +202,7 @@
     cursor: pointer;
     white-space: nowrap;
   }
-  tr.formwechsel-aktiv .formwechsel-toggle-zelle button { border-color: #b48a00; color: #7a5c00; }
+  tr.formwechsel-aktiv .formwechsel-toggle-zelle button { border-color: #1a56db; color: #12409e; }
 
   .hinweis-scroll { font-size: 13px; color: var(--text-dim); padding: 8px 4px; text-align: center; }
 
@@ -602,18 +602,37 @@ async function ladeAuftraege() {
 
   karte.classList.remove('versteckt');
   liste.innerHTML = data.map(a => {
-    if (a.pdf_dateiname) {
-      return `<div style="padding:8px 0; border-bottom:1px solid #f0e2b8;">
-        <strong>Prio ${a.prioritaet}:</strong> 📄 ${a.pdf_dateiname}
+    const details = a.pdf_dateiname
+      ? `📄 ${a.pdf_dateiname}`
+      : [a.form, a.groesse ? `Gr. ${a.groesse}` : '', a.soll ? `Soll ${a.soll}` : ''].filter(Boolean).join(' · ');
+    return `<div style="padding:8px 0; border-bottom:1px solid #f0e2b8; display:flex; justify-content:space-between; align-items:center; gap:10px;">
+      <div>
+        <strong>Prio ${a.prioritaet}:</strong> ${details}
         ${a.bemerkung ? `<div style="font-size:14px; color:#7a5c00;">${a.bemerkung}</div>` : ''}
-      </div>`;
-    }
-    const details = [a.form, a.groesse ? `Gr. ${a.groesse}` : '', a.soll ? `Soll ${a.soll}` : ''].filter(Boolean).join(' · ');
-    return `<div style="padding:8px 0; border-bottom:1px solid #f0e2b8;">
-      <strong>Prio ${a.prioritaet}:</strong> ${details}
-      ${a.bemerkung ? `<div style="font-size:14px; color:#7a5c00;">${a.bemerkung}</div>` : ''}
+      </div>
+      <button type="button" class="kleiner-btn auftrag-stornieren" data-id="${a.id}" style="flex-shrink:0; padding:8px 12px; font-size:13px; border-radius:8px; border:1.5px solid var(--grau-rand); background:white; cursor:pointer;">✕ Stornieren</button>
     </div>`;
   }).join('');
+
+  liste.querySelectorAll('.auftrag-stornieren').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const bestaetigt = confirm('Diesen Auftrag wirklich stornieren? (z.B. weil die Form aktuell an einem anderen Rundläufer läuft)');
+      if (!bestaetigt) return;
+      btn.disabled = true;
+      const { error: stornoFehler } = await supabaseClient
+        .from('auftraege')
+        .update({ status: 'storniert' })
+        .eq('id', parseInt(btn.dataset.id, 10));
+      if (stornoFehler) {
+        console.error('Auftrag konnte nicht storniert werden:', stornoFehler);
+        zeigeMeldung('fehler', '❌ Stornieren fehlgeschlagen: ' + stornoFehler.message);
+        btn.disabled = false;
+        return;
+      }
+      await ladeAuftraege();
+      zeigeMeldung('info', 'ℹ️ Auftrag storniert.');
+    });
+  });
 }
 
 // Prueft nach dem Absenden einer Schicht, ob eine der eingetragenen
@@ -869,6 +888,33 @@ function baueStationenFormular() {
   // Browsern kein "input"-Event zuverlaessig ausloesen.
   bereich.addEventListener('input', speichereAutosave);
   bereich.addEventListener('change', speichereAutosave);
+
+  // WICHTIG: die "left"-Position der fixierten Station-Spalte (2. von
+  // links) wird aus der TATSAECHLICH gerenderten Breite der davor
+  // liegenden Haekchen-Spalte berechnet, statt einen festen Pixel-Wert
+  // anzunehmen - ein geschaetzter Wert war leicht daneben (Padding/
+  // Zellrahmen variieren je nach Bildschirm), wodurch sich beim
+  // horizontalen Scrollen die Station-Spalte mit der Haekchen-Spalte
+  // ueberlappen oder eine Luecke zeigen konnte ("verrutschen").
+  aktualisiereStickyPositionen();
+  window.addEventListener('resize', aktualisiereStickyPositionen);
+}
+
+function aktualisiereStickyPositionen() {
+  const ersteZelle = document.querySelector('table.stationen-tabelle td.spalte-haekchen');
+  if (!ersteZelle) return;
+  const breite = ersteZelle.getBoundingClientRect().width;
+  const style = document.getElementById('dynamischeStickyStyles') || (() => {
+    const s = document.createElement('style');
+    s.id = 'dynamischeStickyStyles';
+    document.head.appendChild(s);
+    return s;
+  })();
+  style.textContent = `
+    table.stationen-tabelle th:nth-child(2), table.stationen-tabelle td:nth-child(2) {
+      left: ${breite}px;
+    }
+  `;
 }
 
 // ------------------------------------------------------------------
@@ -939,13 +985,15 @@ function speichereAutosave() {
   // eigentlich robuste Absicherung: localStorage ist NUR auf diesem
   // einen Geraet vorhanden und kann durch Cache-Loeschung, App-Neustart
   // durch das Betriebssystem oder einen Geraete-Reset komplett verloren
-  // gehen. Die Cloud-Sicherung laeuft etwas gedrosselter (2.5s statt
+  // gehen. Die Cloud-Sicherung laeuft etwas gedrosselter (1s statt
   // 400ms), um bei jedem Tastendruck nicht unnoetig viele
-  // Netzwerkanfragen auszuloesen.
+  // Netzwerkanfragen auszuloesen - aber kurz genug, damit selbst bei
+  // einer sehr kurzen Unterbrechung so gut wie nichts verloren gehen
+  // kann.
   clearTimeout(cloudAutosaveTimeout);
   cloudAutosaveTimeout = setTimeout(() => {
     speichereCloudEntwurf();
-  }, 2500);
+  }, 1000);
 }
 
 // Speichert SOFORT, ohne Verzoegerung - wird zusaetzlich zur
@@ -1253,15 +1301,44 @@ document.getElementById('rueckgaengigBtn').addEventListener('click', async () =>
   }
 });
 
+let sendeVorgangLaeuft = false;
 document.getElementById('absendenBtn').addEventListener('click', async () => {
+  // WICHTIG: als ALLERERSTES pruefen und sperren - verhindert, dass ein
+  // zweiter, schneller Klick (Doppelklick oder ungeduldiges nochmaliges
+  // Tippen, bevor die erste Anfrage fertig ist) den kompletten Handler
+  // ein zweites Mal durchlaufen laesst. Ohne diese Sperre konnte es
+  // passieren, dass die zweite Ausfuehrung mit bereits (durch die
+  // erste, schneller abgeschlossene Anfrage) geleerten Feldern lief und
+  // dadurch Nullwerte ueber die richtigen Werte geschrieben hat.
+  if (sendeVorgangLaeuft) return;
+  sendeVorgangLaeuft = true;
+  document.getElementById('absendenBtn').disabled = true;
+
   if (!gewaehlteSchicht) {
     zeigeMeldung('fehler', '❌ Bitte zuerst Früh- oder Spätschicht auswählen.');
+    sendeVorgangLaeuft = false;
+    document.getElementById('absendenBtn').disabled = false;
     return;
   }
 
   const formular = sammleFormularDaten();
   const heuteIso = lokalesDatumIso();
   const heuteAnzeige = lokalesDatumAnzeige();
+
+  // WICHTIG: verhindert, dass eine UNVOLLSTAENDIGE Schicht (auch nur
+  // eine einzelne fehlende Station) an den Haupt-PC gesendet wird - dort
+  // wuerde eine leer gebliebene Station faelschlich als "0 produziert"
+  // ankommen. Es muessen daher ALLE Stationen einen "Ende"-Wert haben,
+  // bevor die Schicht abgesendet werden kann.
+  const stationenOhneEndeWert = formular.stationen
+    .filter(st => (st.ende || '').toString().trim().length === 0)
+    .map(st => st.station);
+  if (stationenOhneEndeWert.length > 0) {
+    zeigeMeldung('fehler', `❌ Bei folgenden Stationen fehlt noch der "Ende"-Wert: ${stationenOhneEndeWert.join(', ')}. Bitte zuerst alle Zählerstände eintippen, bevor die Schicht abgesendet wird.`);
+    sendeVorgangLaeuft = false;
+    document.getElementById('absendenBtn').disabled = false;
+    return;
+  }
 
   // Stationen-Array im selben Format wie die Haupt-App erwartet
   // ("ausgewerteteDaten.stationen") zusammenbauen. Falls Form/Gr./Soll
@@ -1379,6 +1456,7 @@ document.getElementById('absendenBtn').addEventListener('click', async () => {
     console.error('Schicht konnte nicht gesendet werden:', fehler);
     zeigeMeldung('fehler', '❌ Senden fehlgeschlagen: ' + fehler.message + ' - der eingegebene Stand bleibt auf diesem Tablet gespeichert, bitte erneut versuchen.');
   } finally {
+    sendeVorgangLaeuft = false;
     absendenBtn.disabled = false;
     absendenBtn.textContent = '✅ Schicht absenden';
   }
