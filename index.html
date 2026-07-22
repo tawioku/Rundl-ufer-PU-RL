@@ -409,6 +409,7 @@ aktualisiereVerbindungsstatus();
 // ------------------------------------------------------------------
 let gewaehlteSchicht = null;
 let autosaveTimeout = null; // muss VOR waehleSchicht() deklariert sein, da diese ueber speichereAutosave() bereits darauf zugreift
+let cloudAutosaveTimeout = null; // fuer die zusaetzliche Cloud-Entwurfs-Sicherung (robuster als nur localStorage)
 let letzterGesendeterStand = null; // merkt sich den zuletzt abgesendeten Formularstand fuer den "Rückgängig"-Button
 function waehleSchicht(schicht) {
   gewaehlteSchicht = schicht;
@@ -801,18 +802,132 @@ function aktualisiereGesamtKaestchen() {
 function speichereAutosave() {
   clearTimeout(autosaveTimeout);
   autosaveTimeout = setTimeout(() => {
-    try {
-      localStorage.setItem(AUTOSAVE_SCHLUESSEL, JSON.stringify(sammleFormularDaten()));
-    } catch (e) { /* unkritisch, Autosave ist nur Komfort */ }
+    speichereAutosaveSofort();
   }, 400);
+
+  // Zusaetzlich zur schnellen lokalen Sicherung (localStorage) wird der
+  // Zwischenstand auch in Supabase als "Entwurf" gesichert - das ist die
+  // eigentlich robuste Absicherung: localStorage ist NUR auf diesem
+  // einen Geraet vorhanden und kann durch Cache-Loeschung, App-Neustart
+  // durch das Betriebssystem oder einen Geraete-Reset komplett verloren
+  // gehen. Die Cloud-Sicherung laeuft etwas gedrosselter (2.5s statt
+  // 400ms), um bei jedem Tastendruck nicht unnoetig viele
+  // Netzwerkanfragen auszuloesen.
+  clearTimeout(cloudAutosaveTimeout);
+  cloudAutosaveTimeout = setTimeout(() => {
+    speichereCloudEntwurf();
+  }, 2500);
 }
 
-function stelleAutosaveWiederHer() {
-  const roh = localStorage.getItem(AUTOSAVE_SCHLUESSEL);
-  if (!roh) return;
+// Speichert SOFORT, ohne Verzoegerung - wird zusaetzlich zur
+// verzoegerten speichereAutosave() beim Verlassen/Minimieren der
+// Seite aufgerufen (siehe visibilitychange/pagehide weiter unten), damit
+// eine Eingabe, die kurz vor dem Wechseln zur naechsten Station oder
+// Schliessen der App gemacht wurde, garantiert nicht durch das 400ms-
+// Verzoegerungsfenster verloren geht.
+function speichereAutosaveSofort() {
   try {
-    const daten = JSON.parse(roh);
+    localStorage.setItem(AUTOSAVE_SCHLUESSEL, JSON.stringify(sammleFormularDaten()));
+  } catch (e) { /* unkritisch, Autosave ist nur Komfort */ }
+}
 
+// Speichert den aktuellen Zwischenstand als "Entwurf" in Supabase - der
+// Haupt-PC sieht diese Schichten NICHT (der Filter fuer "Vom Tablet
+// gesendet" bleibt auf status='offen'), das dient ausschliesslich als
+// Wiederherstellungs-Sicherung fuer DIESES Tablet, falls sein lokaler
+// Speicher (localStorage) verloren geht.
+async function speichereCloudEntwurf() {
+  if (!gewaehlteSchicht) return;
+  try {
+    const formular = sammleFormularDaten();
+    const heuteIso = lokalesDatumIso();
+    const stationenFuerDatenbank = aktuellerStand.map(st => {
+      const eingabe = formular.stationen.find(f => f.station === st.station) || {};
+      return {
+        station: st.station,
+        ende: parseFloat(eingabe.ende) || 0,
+        ausschuss: parseFloat(eingabe.ausschuss) || 0,
+        neue_form: (eingabe.neueForm || '').trim(),
+        neue_gr: (eingabe.neueGr || '').trim(),
+        neues_soll: (eingabe.neuesSoll || '').trim(),
+        neues_paar: parseFloat(eingabe.neuesPaar) || 0,
+        neuer_ausschuss: parseFloat(eingabe.neuerAusschuss) || 0,
+        kunde: (eingabe.kunde || '').trim(),
+        korrektur_form: (eingabe.form || '').trim(),
+        korrektur_gr: (eingabe.groesse || '').trim(),
+        korrektur_soll: (eingabe.soll || '').trim(),
+        korrektur_anfang: String(st.anfang),
+      };
+    });
+
+    await supabaseClient
+      .from('schichten')
+      .upsert({
+        rundlaeufer: RUNDLAEUFER_NUMMER,
+        datum: heuteIso,
+        schicht: gewaehlteSchicht,
+        maschinenfuehrer: formular.maschinenfuehrer,
+        reinklopfer: formular.reinklopfer,
+        rausnehmer: formular.rausnehmer,
+        stoerungsvermerk: formular.stoerung,
+        stationen: stationenFuerDatenbank,
+        status: 'entwurf',
+        quelle: 'tablet',
+        aktualisiert_am: new Date().toISOString(),
+      }, { onConflict: 'rundlaeufer,datum,schicht' });
+    // Fehler hier bewusst nicht dem Nutzer anzeigen - die lokale
+    // Sicherung (localStorage) greift ohnehin zusaetzlich, ein
+    // fehlgeschlagener Cloud-Entwurf (z.B. wegen kurzzeitig fehlendem
+    // WLAN) soll die Eingabe nicht stoeren.
+  } catch (fehler) {
+    console.warn('Cloud-Entwurf konnte nicht gespeichert werden (unkritisch, lokale Sicherung greift weiterhin):', fehler);
+  }
+}
+
+// WICHTIG: sobald die Seite in den Hintergrund wechselt (App gewechselt,
+// Bildschirm gesperrt, Tablet-Ueberblick geoeffnet) oder komplett
+// geschlossen wird, wird SOFORT (ohne das 400ms-Verzoegerungsfenster von
+// speichereAutosave) gespeichert. "visibilitychange" deckt das Wechseln
+// in den Hintergrund ab (zuverlaessiger als "pagehide" auf vielen
+// Android-Browsern), "pagehide" zusaetzlich das tatsaechliche Schliessen.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') {
+    clearTimeout(autosaveTimeout);
+    clearTimeout(cloudAutosaveTimeout);
+    speichereAutosaveSofort();
+    speichereCloudEntwurf();
+  }
+});
+window.addEventListener('pagehide', () => {
+  clearTimeout(autosaveTimeout);
+  clearTimeout(cloudAutosaveTimeout);
+  speichereAutosaveSofort();
+  speichereCloudEntwurf();
+});
+
+async function stelleAutosaveWiederHer() {
+  // Zuerst der schnelle, lokale Autosave (localStorage) - falls dort
+  // nichts gefunden wird (z.B. weil der lokale Speicher des Tablets
+  // durch Cache-Loeschung, App-Neustart oder Geraete-Reset verloren
+  // ging), wird als robustere Absicherung zusaetzlich in der Cloud
+  // (Supabase, status='entwurf') nachgeschaut - siehe
+  // speichereCloudEntwurf() weiter oben.
+  const roh = localStorage.getItem(AUTOSAVE_SCHLUESSEL);
+  let daten = null;
+  let quelleCloud = false;
+
+  if (roh) {
+    try { daten = JSON.parse(roh); } catch (e) { console.error('Lokaler Autosave beschädigt:', e); }
+  }
+
+  if (!daten) {
+    daten = await ladeCloudEntwurfFallsVorhanden();
+    quelleCloud = !!daten;
+  }
+
+  if (!daten) return;
+
+  try {
     // WICHTIG: allein die automatische Schicht-Vorauswahl beim Laden
     // (siehe waehleSchicht() weiter oben) loest bereits ein
     // speichereAutosave() aus - das erzeugt einen Eintrag, der nur
@@ -861,9 +976,61 @@ function stelleAutosaveWiederHer() {
 
     if (istEchterZwischenstand) {
       document.getElementById('autosaveHinweisBtn').style.display = 'block';
-      zeigeMeldung('info', 'ℹ️ Ein zuvor unvollständig gesendeter Stand wurde wiederhergestellt.');
+      zeigeMeldung('info', quelleCloud
+        ? 'ℹ️ Ein zuvor unvollständig gesendeter Stand wurde aus der Cloud-Sicherung wiederhergestellt (lokaler Speicher war leer).'
+        : 'ℹ️ Ein zuvor unvollständig gesendeter Stand wurde wiederhergestellt.');
+      // Den wiederhergestellten Stand direkt auch wieder lokal sichern,
+      // damit er ab jetzt schnell verfuegbar ist.
+      speichereAutosaveSofort();
     }
   } catch (e) { console.error('Autosave konnte nicht wiederhergestellt werden:', e); }
+}
+
+// Sucht in Supabase nach einem "Entwurf" fuer diesen Rundlaeufer und
+// den heutigen Tag (beide Schichten werden geprueft, da nicht
+// zwingend bekannt ist, welche Schicht der Mitarbeiter zuletzt
+// bearbeitet hatte) und wandelt ihn in dasselbe Format um, das auch
+// der lokale Autosave nutzt.
+async function ladeCloudEntwurfFallsVorhanden() {
+  try {
+    const heuteIso = lokalesDatumIso();
+    const { data, error } = await supabaseClient
+      .from('schichten')
+      .select('*')
+      .eq('rundlaeufer', RUNDLAEUFER_NUMMER)
+      .eq('datum', heuteIso)
+      .eq('status', 'entwurf')
+      .order('aktualisiert_am', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error || !data) return null;
+
+    return {
+      schicht: data.schicht,
+      maschinenfuehrer: data.maschinenfuehrer,
+      reinklopfer: data.reinklopfer,
+      rausnehmer: data.rausnehmer,
+      stoerung: data.stoerungsvermerk,
+      stationen: (data.stationen || []).map(st => ({
+        station: st.station,
+        form: st.korrektur_form,
+        groesse: st.korrektur_gr,
+        soll: st.korrektur_soll,
+        ende: st.ende ? String(st.ende) : '',
+        ausschuss: st.ausschuss ? String(st.ausschuss) : '',
+        neueForm: st.neue_form,
+        neueGr: st.neue_gr,
+        neuesSoll: st.neues_soll,
+        neuesPaar: st.neues_paar ? String(st.neues_paar) : '',
+        neuerAusschuss: st.neuer_ausschuss ? String(st.neuer_ausschuss) : '',
+        kunde: st.kunde,
+      })),
+    };
+  } catch (fehler) {
+    console.warn('Cloud-Entwurf konnte nicht abgerufen werden:', fehler);
+    return null;
+  }
 }
 
 function loescheAutosave() {
