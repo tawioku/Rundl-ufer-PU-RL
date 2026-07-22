@@ -267,6 +267,17 @@
   </div>
 </div>
 
+<div id="neuerAuftragOverlay" class="popup-overlay versteckt">
+  <div class="popup-box">
+    <div style="font-size:40px;">📬</div>
+    <div>
+      <div style="font-weight:800; font-size:19px; margin-bottom:6px;">Neuer Auftrag vom Abteilungsleiter</div>
+      <div style="color:var(--text-dim); font-size:15px; margin-bottom:14px;">Es gibt eine neue Anweisung für diesen Rundläufer.</div>
+      <button type="button" class="grosser-btn" id="neuerAuftragAnsehenBtn" style="margin-top:0;">📋 Ansehen</button>
+    </div>
+  </div>
+</div>
+
 <header>
   <h1 id="titelText">Rundläufer –</h1>
   <div><span class="status-punkt" id="statusPunkt"></span><span id="statusText" style="font-size:14px; color:var(--text-dim);">Verbinde...</span></div>
@@ -291,6 +302,15 @@
   <div class="karte versteckt" id="vorherigeSchichtKarte" style="text-align:center; background:#eef2ff;">
     <span style="font-size:15px; color:var(--text-dim);">Produziert von der letzten Schicht (<span id="vorherigeSchichtLabel"></span>):</span>
     <div id="vorherigeSchichtWert" style="font-size:28px; font-weight:800; color:var(--blau);">–</div>
+  </div>
+
+  <!-- Offene Auftraege vom Abteilungsleiter ("als naechstes einbauen") -
+       sortiert nach Prioritaet. Verschwindet automatisch, sobald exakt
+       diese Form+Groesse als Formwechsel eingetragen und abgesendet
+       wird (siehe pruefeAuftraegeErledigt() weiter unten). -->
+  <div class="karte versteckt" id="auftraegeKarte" style="background:#fff8e6; border:2px solid #f0c95e;">
+    <div style="font-weight:800; font-size:17px; margin-bottom:10px;">📋 Als nächstes einbauen</div>
+    <div id="auftraegeListe"></div>
   </div>
 
   <div class="karte">
@@ -527,6 +547,81 @@ function base64ZuArrayBuffer(base64) {
 // Sucht die zuletzt ABGESCHLOSSENE Schicht dieses Rundlaeufers und zeigt
 // deren Kaestchen-Zahl (produzierte Gesamtmenge) an - als Vergleichswert
 // fuer den neuen Mitarbeiter ("was hat mein Vormann produziert").
+// ------------------------------------------------------------------
+// Offene Auftraege vom Abteilungsleiter ("als naechstes einbauen") -
+// werden nach Prioritaet sortiert angezeigt. Ein Pop-up erscheint, wenn
+// waehrend der laufenden Sitzung ein NEUER Auftrag eintrifft (siehe
+// Realtime-Abo weiter unten).
+async function ladeAuftraege() {
+  const { data, error } = await supabaseClient
+    .from('auftraege')
+    .select('*')
+    .eq('rundlaeufer', RUNDLAEUFER_NUMMER)
+    .eq('status', 'offen')
+    .order('prioritaet', { ascending: true });
+
+  const karte = document.getElementById('auftraegeKarte');
+  const liste = document.getElementById('auftraegeListe');
+
+  if (error) {
+    console.error('Aufträge konnten nicht geladen werden:', error);
+    return;
+  }
+  if (!data || data.length === 0) {
+    karte.classList.add('versteckt');
+    return;
+  }
+
+  karte.classList.remove('versteckt');
+  liste.innerHTML = data.map(a => {
+    if (a.pdf_dateiname) {
+      return `<div style="padding:8px 0; border-bottom:1px solid #f0e2b8;">
+        <strong>Prio ${a.prioritaet}:</strong> 📄 ${a.pdf_dateiname}
+        ${a.bemerkung ? `<div style="font-size:14px; color:#7a5c00;">${a.bemerkung}</div>` : ''}
+      </div>`;
+    }
+    const details = [a.form, a.groesse ? `Gr. ${a.groesse}` : '', a.soll ? `Soll ${a.soll}` : ''].filter(Boolean).join(' · ');
+    return `<div style="padding:8px 0; border-bottom:1px solid #f0e2b8;">
+      <strong>Prio ${a.prioritaet}:</strong> ${details}
+      ${a.bemerkung ? `<div style="font-size:14px; color:#7a5c00;">${a.bemerkung}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+// Prueft nach dem Absenden einer Schicht, ob eine der eingetragenen
+// Formwechsel-Formnummern (inkl. Groesse) zu einem offenen Auftrag
+// passt - falls ja, wird der Auftrag automatisch als "erledigt"
+// markiert. Vergleich erfolgt case-insensitive und ohne fuehrende/
+// nachfolgende Leerzeichen, damit kleine Schreibunterschiede nicht
+// stoeren.
+async function pruefeAuftraegeErledigt(stationenFuerDatenbank) {
+  const { data: offeneAuftraege } = await supabaseClient
+    .from('auftraege')
+    .select('id, form, groesse')
+    .eq('rundlaeufer', RUNDLAEUFER_NUMMER)
+    .eq('status', 'offen')
+    .not('form', 'is', null);
+
+  if (!offeneAuftraege || offeneAuftraege.length === 0) return;
+
+  const normalisiere = (text) => (text || '').trim().toLowerCase();
+  const eingetrageneFormwechsel = [];
+  stationenFuerDatenbank.forEach(st => {
+    if (st.neue_form) eingetrageneFormwechsel.push({ form: st.neue_form, groesse: st.neue_gr });
+  });
+
+  for (const auftrag of offeneAuftraege) {
+    const treffer = eingetrageneFormwechsel.some(fw =>
+      normalisiere(fw.form) === normalisiere(auftrag.form) &&
+      (!auftrag.groesse || normalisiere(fw.groesse) === normalisiere(auftrag.groesse))
+    );
+    if (treffer) {
+      await supabaseClient.from('auftraege').update({ status: 'erledigt', erledigt_am: new Date().toISOString() }).eq('id', auftrag.id);
+    }
+  }
+  await ladeAuftraege();
+}
+
 async function ladeVorherigeSchichtKaestchen() {
   const { data, error } = await supabaseClient
     .from('schichten')
@@ -1213,6 +1308,10 @@ document.getElementById('absendenBtn').addEventListener('click', async () => {
     // geschickte, leicht andere Struktur).
     letzterGesendeterStand = { formular, schicht: gewaehlteSchicht, schichtId: gesendeteSchichtId };
 
+    // Prueft, ob durch die gerade gesendeten Formwechsel ein offener
+    // Auftrag ("als naechstes einbauen") erledigt wurde.
+    await pruefeAuftraegeErledigt(stationenFuerDatenbank);
+
     loescheAutosave();
     zeigeMeldung('erfolg', `✅ Schicht (${gewaehlteSchicht}, ${heuteAnzeige}) erfolgreich gesendet! Die Auswertung erfolgt am Haupt-PC.`);
     document.getElementById('autosaveHinweisBtn').style.display = 'none';
@@ -1271,9 +1370,31 @@ document.getElementById('neuerPlanUebernehmenBtn').addEventListener('click', () 
   window.location.reload();
 });
 
+// Live-Benachrichtigung fuer NEUE Auftraege vom Abteilungsleiter - nur
+// bei INSERT (neuer Auftrag), nicht bei jeder Statusaenderung (z.B.
+// automatisches Erledigen durch pruefeAuftraegeErledigt), damit das
+// Pop-up nicht unnoetig oft erscheint.
+const auftraegeKanal = supabaseClient
+  .channel(`auftraege-rl${RUNDLAEUFER_NUMMER}`)
+  .on(
+    'postgres_changes',
+    { event: 'INSERT', schema: 'public', table: 'auftraege', filter: `rundlaeufer=eq.${RUNDLAEUFER_NUMMER}` },
+    () => {
+      document.getElementById('neuerAuftragOverlay').classList.remove('versteckt');
+      ladeAuftraege();
+    }
+  )
+  .subscribe();
+
+document.getElementById('neuerAuftragAnsehenBtn').addEventListener('click', () => {
+  document.getElementById('neuerAuftragOverlay').classList.add('versteckt');
+  document.getElementById('auftraegeKarte')?.scrollIntoView({ behavior: 'smooth' });
+});
+
 // Start
 ladeAktuellenStand();
 ladeVorherigeSchichtKaestchen();
+ladeAuftraege();
 </script>
 </body>
 </html>

@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Aufträge – Abteilungsleiter</title>
+
+<!-- PWA: macht die Seite auf dem Startbildschirm installierbar, siehe
+     tablet.html fuer dieselbe Technik (nur eigenes, blaues Icon). -->
+<link rel="manifest" href="leiter-manifest.json">
+<meta name="theme-color" content="#1a3d8f">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Aufträge">
+<link rel="apple-touch-icon" href="leiter-icon-192.png">
+<link rel="icon" type="image/png" sizes="192x192" href="leiter-icon-192.png">
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<style>
+  :root {
+    --blau: #1a3d8f;
+    --blau-hell: #e8edfb;
+    --gruen: #1c7c3f;
+    --gruen-hell: #e6f4ea;
+    --rot: #c0392b;
+    --rot-hell: #fbe9e7;
+    --gelb-hell: #fff6d9;
+    --text: #1f2430;
+    --text-dim: #6b7280;
+    --grau-rand: #d8dce3;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    background: #f4f6f9;
+    color: var(--text);
+    font-size: 18px;
+    -webkit-tap-highlight-color: transparent;
+  }
+  header {
+    background: white;
+    padding: 18px 20px;
+    border-bottom: 1px solid var(--grau-rand);
+    position: sticky;
+    top: 0;
+    z-index: 50;
+  }
+  header h1 { font-size: 22px; margin: 0; }
+  header .untertitel { font-size: 14px; color: var(--text-dim); margin-top: 2px; }
+
+  .container { max-width: 720px; margin: 0 auto; padding: 16px; }
+
+  .karte {
+    background: white;
+    border-radius: 14px;
+    padding: 18px;
+    margin-bottom: 16px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+  }
+
+  label { display: block; font-weight: 600; margin-bottom: 6px; font-size: 15px; color: var(--text-dim); }
+  input[type=text], input[type=number], textarea, select {
+    width: 100%;
+    padding: 14px;
+    font-size: 18px;
+    border-radius: 10px;
+    border: 2px solid var(--grau-rand);
+    margin-bottom: 14px;
+    font-family: inherit;
+  }
+  input:focus, textarea:focus, select:focus { outline: none; border-color: var(--blau); }
+
+  .rundlaeufer-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 6px; }
+  @media (min-width: 600px) { .rundlaeufer-grid { grid-template-columns: repeat(8, 1fr); } }
+  .rundlaeufer-btn {
+    padding: 16px 4px;
+    font-size: 18px;
+    font-weight: 700;
+    border-radius: 10px;
+    border: 3px solid var(--grau-rand);
+    background: white;
+    color: var(--text);
+    cursor: pointer;
+  }
+  .rundlaeufer-btn.aktiv { border-color: var(--blau); background: var(--blau-hell); color: var(--blau); }
+
+  .art-wahl { display: flex; gap: 12px; margin-bottom: 16px; }
+  .art-btn {
+    flex: 1;
+    padding: 16px;
+    font-size: 17px;
+    font-weight: 700;
+    border-radius: 12px;
+    border: 3px solid var(--grau-rand);
+    background: white;
+    color: var(--text);
+    cursor: pointer;
+  }
+  .art-btn.aktiv { border-color: var(--blau); background: var(--blau-hell); color: var(--blau); }
+
+  .prioritaet-wahl { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
+  .prio-btn {
+    flex: 1;
+    min-width: 90px;
+    padding: 14px 8px;
+    font-size: 15px;
+    font-weight: 700;
+    border-radius: 10px;
+    border: 3px solid var(--grau-rand);
+    background: white;
+    color: var(--text);
+    cursor: pointer;
+  }
+  .prio-btn.aktiv { border-color: #b48a00; background: var(--gelb-hell); color: #7a5c00; }
+
+  .upload-zone {
+    border: 3px dashed var(--grau-rand);
+    border-radius: 12px;
+    padding: 30px 16px;
+    text-align: center;
+    cursor: pointer;
+    background: #fafbfc;
+  }
+  .upload-zone.hover { border-color: var(--blau); background: var(--blau-hell); }
+  .upload-zone input[type="file"] { display: none; }
+  .upload-zone .icon { font-size: 40px; margin-bottom: 8px; }
+  .upload-zone .dateiname { font-weight: 700; color: var(--blau); margin-top: 8px; }
+
+  .grosser-btn {
+    width: 100%;
+    padding: 20px;
+    font-size: 20px;
+    font-weight: 700;
+    border-radius: 12px;
+    border: none;
+    background: var(--blau);
+    color: white;
+    cursor: pointer;
+    margin-top: 10px;
+  }
+  .grosser-btn:disabled { background: #a8b0bb; }
+
+  .meldung {
+    padding: 16px;
+    border-radius: 10px;
+    font-weight: 600;
+    margin-bottom: 16px;
+    display: none;
+  }
+  .meldung.erfolg { display: block; background: var(--gruen-hell); color: var(--gruen); }
+  .meldung.fehler { display: block; background: var(--rot-hell); color: var(--rot); }
+  .meldung.info { display: block; background: var(--blau-hell); color: var(--blau); }
+
+  .versteckt { display: none !important; }
+
+  .auftrag-zeile {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 0;
+    border-bottom: 1px solid #f0f1f4;
+  }
+  .auftrag-zeile:last-child { border-bottom: none; }
+  .auftrag-info { flex: 1; }
+  .auftrag-prio {
+    display: inline-block;
+    background: var(--gelb-hell);
+    color: #7a5c00;
+    font-weight: 800;
+    font-size: 13px;
+    padding: 3px 9px;
+    border-radius: 20px;
+    margin-right: 8px;
+  }
+  .auftrag-rl { font-weight: 800; color: var(--blau); margin-right: 6px; }
+  .auftrag-details { font-size: 14px; color: var(--text-dim); margin-top: 3px; }
+  .kleiner-btn {
+    padding: 8px 12px;
+    font-size: 13px;
+    border-radius: 8px;
+    border: 1.5px solid var(--grau-rand);
+    background: white;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>📋 Aufträge an Rundläufer</h1>
+  <div class="untertitel">Neue Anweisungen senden oder offene Aufträge einsehen</div>
+</header>
+
+<div class="container">
+
+  <div class="meldung" id="meldungBox"></div>
+
+  <!-- Rundlaeufer auswaehlen -->
+  <div class="karte">
+    <label>Rundläufer</label>
+    <div class="rundlaeufer-grid" id="rundlaeuferGrid"></div>
+  </div>
+
+  <!-- Art des Auftrags: Text-Anweisung oder PDF -->
+  <div class="karte">
+    <label>Art der Anweisung</label>
+    <div class="art-wahl">
+      <button type="button" class="art-btn aktiv" id="artTextBtn">📝 Text-Anweisung</button>
+      <button type="button" class="art-btn" id="artPdfBtn">📄 PDF hochladen</button>
+    </div>
+
+    <div id="textBereich">
+      <label>Form / Artikelnummer</label>
+      <input type="text" id="formFeld" list="artikelnummernListe" placeholder="z.B. M 7361300076" autocomplete="off">
+      <datalist id="artikelnummernListe"></datalist>
+
+      <label>Größe</label>
+      <input type="text" id="groesseFeld" placeholder="z.B. 42">
+
+      <label>Sollzahl</label>
+      <input type="text" id="sollFeld" placeholder="z.B. 1500">
+
+      <label>Bemerkung (optional)</label>
+      <textarea id="bemerkungFeld" rows="2" placeholder="z.B. Eilauftrag für Kunde XY"></textarea>
+    </div>
+
+    <div id="pdfBereich" class="versteckt">
+      <label>PDF-Datei</label>
+      <div class="upload-zone" id="pdfZone">
+        <div class="icon">📄</div>
+        <div>Klicken oder PDF hierher ziehen</div>
+        <div class="dateiname" id="pdfDateiname"></div>
+        <input type="file" id="pdfInput" accept="application/pdf">
+      </div>
+      <label style="margin-top:14px;">Bemerkung (optional)</label>
+      <textarea id="bemerkungPdfFeld" rows="2" placeholder="z.B. Eilauftrag für Kunde XY"></textarea>
+    </div>
+  </div>
+
+  <!-- Prioritaet -->
+  <div class="karte">
+    <label>Priorität</label>
+    <div class="prioritaet-wahl" id="prioritaetWahl"></div>
+    <div class="hinweis" style="font-size:13px; color:var(--text-dim);">
+      Bei Prio 1 rutschen bereits offene Aufträge für diesen Rundläufer automatisch eine Stufe zurück.
+    </div>
+  </div>
+
+  <div class="karte">
+    <button type="button" class="grosser-btn" id="sendenBtn">✅ Auftrag senden</button>
+  </div>
+
+  <!-- Uebersicht aller offenen Auftraege -->
+  <div class="karte">
+    <h2 style="font-size:18px; margin-top:0;">📬 Offene Aufträge (alle Rundläufer)</h2>
+    <div id="offeneAuftraegeListe">
+      <div style="color:var(--text-dim); font-size:15px;">Lade...</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const SUPABASE_URL = 'https://otmsgyihmrvkwgtgjoui.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im90bXNneWlobXJ2a3dndGdqb3VpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ1NTAxNzYsImV4cCI6MjEwMDEyNjE3Nn0.ixywkFFKk-eTfrBxQysE8nRFJFuloKHYH5IOmkIJfs8';
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// Bekannte Rundlaeufer-Nummern - RL4 bis RL11, wie in der Haupt-App.
+const RUNDLAEUFER_NUMMERN = [4, 5, 6, 7, 8, 9, 10, 11];
+let ausgewaehlterRundlaeufer = null;
+let ausgewaehlteArt = 'text'; // 'text' oder 'pdf'
+let ausgewaehltePrioritaet = 1;
+let hochgeladenePdfBase64 = null;
+let hochgeladenerPdfDateiname = null;
+
+function zeigeMeldung(typ, text) {
+  const el = document.getElementById('meldungBox');
+  el.className = 'meldung ' + typ;
+  el.textContent = text;
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// Rundlaeufer-Auswahl-Kacheln aufbauen
+const grid = document.getElementById('rundlaeuferGrid');
+grid.innerHTML = RUNDLAEUFER_NUMMERN.map(nr =>
+  `<button type="button" class="rundlaeufer-btn" data-rl="${nr}">${nr}</button>`
+).join('');
+grid.querySelectorAll('.rundlaeufer-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    ausgewaehlterRundlaeufer = parseInt(btn.dataset.rl, 10);
+    grid.querySelectorAll('.rundlaeufer-btn').forEach(b => b.classList.toggle('aktiv', b === btn));
+    aktualisierePrioritaetsWahl();
+  });
+});
+
+// Art-Auswahl (Text vs. PDF)
+document.getElementById('artTextBtn').addEventListener('click', () => {
+  ausgewaehlteArt = 'text';
+  document.getElementById('artTextBtn').classList.add('aktiv');
+  document.getElementById('artPdfBtn').classList.remove('aktiv');
+  document.getElementById('textBereich').classList.remove('versteckt');
+  document.getElementById('pdfBereich').classList.add('versteckt');
+});
+document.getElementById('artPdfBtn').addEventListener('click', () => {
+  ausgewaehlteArt = 'pdf';
+  document.getElementById('artPdfBtn').classList.add('aktiv');
+  document.getElementById('artTextBtn').classList.remove('aktiv');
+  document.getElementById('pdfBereich').classList.remove('versteckt');
+  document.getElementById('textBereich').classList.add('versteckt');
+});
+
+// PDF-Upload
+const pdfZone = document.getElementById('pdfZone');
+const pdfInput = document.getElementById('pdfInput');
+pdfZone.addEventListener('click', () => pdfInput.click());
+pdfZone.addEventListener('dragover', (e) => { e.preventDefault(); pdfZone.classList.add('hover'); });
+pdfZone.addEventListener('dragleave', () => pdfZone.classList.remove('hover'));
+pdfZone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  pdfZone.classList.remove('hover');
+  if (e.dataTransfer.files.length > 0) verarbeitePdfDatei(e.dataTransfer.files[0]);
+});
+pdfInput.addEventListener('change', () => {
+  if (pdfInput.files.length > 0) verarbeitePdfDatei(pdfInput.files[0]);
+});
+
+function verarbeitePdfDatei(datei) {
+  if (datei.type !== 'application/pdf') {
+    zeigeMeldung('fehler', '❌ Bitte eine PDF-Datei auswählen.');
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    hochgeladenePdfBase64 = reader.result.split(',')[1];
+    hochgeladenerPdfDateiname = datei.name;
+    document.getElementById('pdfDateiname').textContent = '✅ ' + datei.name;
+  };
+  reader.readAsDataURL(datei);
+}
+
+// Prioritaets-Auswahl - zeigt an, welche Prioritaeten fuer den
+// ausgewaehlten Rundlaeufer bereits belegt sind, damit klar ist, wo
+// sich der neue Auftrag einreiht.
+async function aktualisierePrioritaetsWahl() {
+  const wahl = document.getElementById('prioritaetWahl');
+  if (!ausgewaehlterRundlaeufer) {
+    wahl.innerHTML = '';
+    return;
+  }
+  const { data } = await supabaseClient
+    .from('auftraege')
+    .select('prioritaet')
+    .eq('rundlaeufer', ausgewaehlterRundlaeufer)
+    .eq('status', 'offen')
+    .order('prioritaet', { ascending: true });
+
+  const belegtePrioritaeten = (data || []).map(a => a.prioritaet);
+  const maxAnzuzeigendePrio = Math.max(4, belegtePrioritaeten.length + 1);
+
+  ausgewaehltePrioritaet = 1;
+  wahl.innerHTML = '';
+  for (let p = 1; p <= maxAnzuzeigendePrio; p++) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'prio-btn' + (p === 1 ? ' aktiv' : '');
+    btn.textContent = belegtePrioritaeten.includes(p) ? `Prio ${p} (belegt)` : `Prio ${p} (frei)`;
+    btn.addEventListener('click', () => {
+      ausgewaehltePrioritaet = p;
+      wahl.querySelectorAll('.prio-btn').forEach(b => b.classList.toggle('aktiv', b === btn));
+    });
+    wahl.appendChild(btn);
+  }
+}
+
+// Artikelnummern fuer Autovervollstaendigung laden (dieselbe Liste wie
+// in der Haupt-App / Tablet-App).
+async function ladeArtikelnummernliste() {
+  const { data, error } = await supabaseClient.from('artikelnummern').select('nummer, kunde').order('nummer').limit(500);
+  if (error) { console.error('Artikelnummernliste konnte nicht geladen werden:', error); return; }
+  const datalist = document.getElementById('artikelnummernListe');
+  datalist.innerHTML = (data || []).map(a => `<option value="${a.nummer}">${a.nummer}${a.kunde ? ' - ' + a.kunde : ''}</option>`).join('');
+}
+ladeArtikelnummernliste();
+
+// Auftrag senden
+document.getElementById('sendenBtn').addEventListener('click', async () => {
+  if (!ausgewaehlterRundlaeufer) {
+    zeigeMeldung('fehler', '❌ Bitte zuerst einen Rundläufer auswählen.');
+    return;
+  }
+  if (ausgewaehlteArt === 'text') {
+    const form = document.getElementById('formFeld').value.trim();
+    if (!form) {
+      zeigeMeldung('fehler', '❌ Bitte mindestens die Form/Artikelnummer angeben.');
+      return;
+    }
+  } else {
+    if (!hochgeladenePdfBase64) {
+      zeigeMeldung('fehler', '❌ Bitte eine PDF-Datei hochladen.');
+      return;
+    }
+  }
+
+  const btn = document.getElementById('sendenBtn');
+  btn.disabled = true;
+  btn.textContent = 'Wird gesendet...';
+
+  try {
+    // Bestehende offene Auftraege fuer diesen Rundlaeufer, die auf
+    // oder nach der gewaehlten Prioritaet liegen, um eine Stufe nach
+    // hinten verschieben - so ruecken bei einem neuen "Prio 1"-Auftrag
+    // alle anderen automatisch weiter.
+    const { data: bestehende } = await supabaseClient
+      .from('auftraege')
+      .select('id, prioritaet')
+      .eq('rundlaeufer', ausgewaehlterRundlaeufer)
+      .eq('status', 'offen')
+      .gte('prioritaet', ausgewaehltePrioritaet)
+      .order('prioritaet', { ascending: false });
+
+    for (const eintrag of (bestehende || [])) {
+      await supabaseClient.from('auftraege').update({ prioritaet: eintrag.prioritaet + 1 }).eq('id', eintrag.id);
+    }
+
+    const neuerAuftrag = {
+      rundlaeufer: ausgewaehlterRundlaeufer,
+      prioritaet: ausgewaehltePrioritaet,
+      status: 'offen',
+    };
+
+    if (ausgewaehlteArt === 'text') {
+      neuerAuftrag.form = document.getElementById('formFeld').value.trim();
+      neuerAuftrag.groesse = document.getElementById('groesseFeld').value.trim();
+      neuerAuftrag.soll = document.getElementById('sollFeld').value.trim();
+      neuerAuftrag.bemerkung = document.getElementById('bemerkungFeld').value.trim();
+    } else {
+      neuerAuftrag.pdf_dateiname = hochgeladenerPdfDateiname;
+      neuerAuftrag.pdf_base64 = hochgeladenePdfBase64;
+      neuerAuftrag.bemerkung = document.getElementById('bemerkungPdfFeld').value.trim();
+    }
+
+    const { error } = await supabaseClient.from('auftraege').insert(neuerAuftrag);
+    if (error) throw error;
+
+    zeigeMeldung('erfolg', `✅ Auftrag für Rundläufer ${ausgewaehlterRundlaeufer} (Prio ${ausgewaehltePrioritaet}) gesendet.`);
+
+    // Formular zuruecksetzen
+    document.getElementById('formFeld').value = '';
+    document.getElementById('groesseFeld').value = '';
+    document.getElementById('sollFeld').value = '';
+    document.getElementById('bemerkungFeld').value = '';
+    document.getElementById('bemerkungPdfFeld').value = '';
+    document.getElementById('pdfDateiname').textContent = '';
+    hochgeladenePdfBase64 = null;
+    hochgeladenerPdfDateiname = null;
+    pdfInput.value = '';
+
+    await aktualisierePrioritaetsWahl();
+    await ladeOffeneAuftraege();
+  } catch (fehler) {
+    console.error('Auftrag konnte nicht gesendet werden:', fehler);
+    zeigeMeldung('fehler', '❌ Senden fehlgeschlagen: ' + fehler.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '✅ Auftrag senden';
+  }
+});
+
+// Uebersicht aller offenen Auftraege ueber alle Rundlaeufer
+async function ladeOffeneAuftraege() {
+  const ziel = document.getElementById('offeneAuftraegeListe');
+  const { data, error } = await supabaseClient
+    .from('auftraege')
+    .select('*')
+    .eq('status', 'offen')
+    .order('rundlaeufer', { ascending: true })
+    .order('prioritaet', { ascending: true });
+
+  if (error) {
+    ziel.innerHTML = '<div style="color:var(--rot);">Fehler beim Laden.</div>';
+    return;
+  }
+  if (!data || data.length === 0) {
+    ziel.innerHTML = '<div style="color:var(--text-dim); font-size:15px;">Keine offenen Aufträge.</div>';
+    return;
+  }
+
+  ziel.innerHTML = data.map(a => {
+    const details = a.pdf_dateiname
+      ? `📄 ${a.pdf_dateiname}`
+      : [a.form, a.groesse ? `Gr. ${a.groesse}` : '', a.soll ? `Soll ${a.soll}` : ''].filter(Boolean).join(' · ');
+    const bemerkungText = a.bemerkung ? ` · ${a.bemerkung}` : '';
+    return `<div class="auftrag-zeile">
+      <div class="auftrag-info">
+        <span class="auftrag-prio">Prio ${a.prioritaet}</span><span class="auftrag-rl">RL ${a.rundlaeufer}</span>
+        <div class="auftrag-details">${details}${bemerkungText}</div>
+      </div>
+      <button type="button" class="kleiner-btn auftrag-stornieren" data-id="${a.id}">✕ Stornieren</button>
+    </div>`;
+  }).join('');
+
+  ziel.querySelectorAll('.auftrag-stornieren').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const bestaetigt = confirm('Diesen Auftrag wirklich stornieren?');
+      if (!bestaetigt) return;
+      await supabaseClient.from('auftraege').update({ status: 'storniert' }).eq('id', parseInt(btn.dataset.id, 10));
+      await ladeOffeneAuftraege();
+    });
+  });
+}
+ladeOffeneAuftraege();
+
+// Live aktualisieren, wenn sich an den Auftraegen etwas aendert (z.B.
+// ein Tablet-Mitarbeiter einen Auftrag durch Umsetzung automatisch
+// erledigt) - damit die Uebersicht hier immer aktuell bleibt.
+supabaseClient
+  .channel('auftraege-uebersicht')
+  .on('postgres_changes', { event: '*', schema: 'public', table: 'auftraege' }, () => {
+    ladeOffeneAuftraege();
+  })
+  .subscribe();
+</script>
+</body>
+</html>
