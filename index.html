@@ -812,6 +812,23 @@ function stelleAutosaveWiederHer() {
   if (!roh) return;
   try {
     const daten = JSON.parse(roh);
+
+    // WICHTIG: allein die automatische Schicht-Vorauswahl beim Laden
+    // (siehe waehleSchicht() weiter oben) loest bereits ein
+    // speichereAutosave() aus - das erzeugt einen Eintrag, der nur
+    // "Schicht: Früh/Spät" enthaelt, aber sonst komplett leer ist. Das
+    // ist KEIN "unvollstaendig gesendeter Stand", sondern voellig normal
+    // bei jedem frischen Laden. Nur wenn WIRKLICH mindestens ein Feld
+    // (Team, Stoerung, oder eine Station) ausgefuellt ist, handelt es
+    // sich um einen echten, wiederherstellenswerten Zwischenstand.
+    const teamAusgefuellt = !!(daten.maschinenfuehrer || daten.reinklopfer || daten.rausnehmer || daten.stoerung);
+    const stationAusgefuellt = (daten.stationen || []).some(st =>
+      st.ende || st.ausschuss || st.neueForm || st.neueGr || st.neuesSoll || st.neuesPaar ||
+      st.neuerAusschuss || st.kunde || st.neueForm2 || st.neueGr2 || st.neuesSoll2 ||
+      st.neuesPaar2 || st.neuerAusschuss2 || st.kunde2
+    );
+    const istEchterZwischenstand = teamAusgefuellt || stationAusgefuellt;
+
     if (daten.schicht) waehleSchicht(daten.schicht);
     document.getElementById('maschinenfuehrerFeld').value = daten.maschinenfuehrer || '';
     document.getElementById('reinklopferFeld').value = daten.reinklopfer || '';
@@ -841,8 +858,11 @@ function stelleAutosaveWiederHer() {
       }
     });
     aktualisiereGesamtKaestchen();
-    document.getElementById('autosaveHinweisBtn').style.display = 'block';
-    zeigeMeldung('info', 'ℹ️ Ein zuvor unvollständig gesendeter Stand wurde wiederhergestellt.');
+
+    if (istEchterZwischenstand) {
+      document.getElementById('autosaveHinweisBtn').style.display = 'block';
+      zeigeMeldung('info', 'ℹ️ Ein zuvor unvollständig gesendeter Stand wurde wiederhergestellt.');
+    }
   } catch (e) { console.error('Autosave konnte nicht wiederhergestellt werden:', e); }
 }
 
