@@ -1089,9 +1089,16 @@ function speichereAutosaveSofort() {
 // Speicher (localStorage) verloren geht.
 async function speichereCloudEntwurf() {
   if (!gewaehlteSchicht) return;
+  const heuteIso = ausgewaehltesDatumIso();
+  // WICHTIG: falls genau diese Schicht/Datum-Kombination gerade schon
+  // erfolgreich final abgesendet wurde (moeglich, wenn dieser Aufruf
+  // bereits "unterwegs" war, als der Absenden-Klick durchlief), NICHTS
+  // mehr schreiben - sonst wuerde die frisch gesendete status='offen'-
+  // Zeile hier faelschlich wieder auf status='entwurf' mit
+  // zwischenzeitlich bereits geleerten Nullwerten zurueckgesetzt.
+  if (bereitsAbgesendeteKombinationen.has(`${gewaehlteSchicht}|${heuteIso}`)) return;
   try {
     const formular = sammleFormularDaten();
-    const heuteIso = ausgewaehltesDatumIso();
     const stationenFuerDatenbank = aktuellerStand.map(st => {
       const eingabe = formular.stationen.find(f => f.station === st.station) || {};
       return {
@@ -1110,6 +1117,25 @@ async function speichereCloudEntwurf() {
         korrektur_anfang: String(st.anfang),
       };
     });
+
+    // ZUSAETZLICHE, datenbankseitige Absicherung (unabhaengig vom
+    // lokalen JavaScript-Timing): direkt vor dem Schreiben nochmal
+    // pruefen, ob die Zeile in der Datenbank inzwischen einen ANDEREN
+    // Status als 'entwurf' hat (also bereits final 'offen' oder
+    // 'abgeschlossen' ist) - falls ja, NICHT schreiben. Das faengt auch
+    // den Fall ab, dass diese Funktion bereits laeuft, waehrend
+    // "Schicht absenden" parallel fertig wird.
+    const { data: bestehendeZeile } = await supabaseClient
+      .from('schichten')
+      .select('status')
+      .eq('rundlaeufer', RUNDLAEUFER_NUMMER)
+      .eq('datum', heuteIso)
+      .eq('schicht', gewaehlteSchicht)
+      .maybeSingle();
+    if (bestehendeZeile && bestehendeZeile.status !== 'entwurf') {
+      bereitsAbgesendeteKombinationen.add(`${gewaehlteSchicht}|${heuteIso}`);
+      return;
+    }
 
     await supabaseClient
       .from('schichten')
@@ -1392,6 +1418,12 @@ document.getElementById('rueckgaengigBtn').addEventListener('click', async () =>
 });
 
 let sendeVorgangLaeuft = false;
+// Merkt sich "schicht|datum"-Kombinationen, die bereits erfolgreich final
+// abgesendet wurden - speichereCloudEntwurf() prueft das und schreibt
+// fuer eine solche Kombination NICHTS mehr, selbst wenn ein bereits
+// laufender Cloud-Speicherversuch zeitlich noch "unterwegs" war, als
+// "Schicht absenden" fertig wurde. Siehe Kommentar bei speichereCloudEntwurf().
+let bereitsAbgesendeteKombinationen = new Set();
 document.getElementById('absendenBtn').addEventListener('click', async () => {
   // WICHTIG: als ALLERERSTES pruefen und sperren - verhindert, dass ein
   // zweiter, schneller Klick (Doppelklick oder ungeduldiges nochmaliges
@@ -1501,6 +1533,22 @@ document.getElementById('absendenBtn').addEventListener('click', async () => {
     // Prueft, ob durch die gerade gesendeten Formwechsel ein offener
     // Auftrag ("als naechstes einbauen") erledigt wurde.
     await pruefeAuftraegeErledigt(stationenFuerDatenbank);
+
+    // KRITISCH: einen noch ausstehenden Cloud-Autosave-Timeout stoppen,
+    // BEVOR die Felder unten geleert werden. Sonst konnte es passieren,
+    // dass speichereCloudEntwurf() kurz NACH dem erfolgreichen Absenden
+    // noch feuert (der Timeout lief bereits, bevor "Absenden" geklickt
+    // wurde) und dabei die gerade final gesendete status='offen'-Zeile
+    // mit status='entwurf' UND den (jetzt schon geleerten!) Nullwerten
+    // überschreibt - obwohl "erfolgreich gesendet" korrekt angezeigt
+    // wurde. Das war die Ursache dafuer, dass am Haupt-PC scheinbar
+    // nichts ankam, obwohl das Tablet einen Erfolg meldete. Zusaetzlich
+    // wird die Kombination sofort im Set vermerkt, damit auch ein
+    // BEREITS LAUFENDER speichereCloudEntwurf()-Aufruf (dessen
+    // Datenbank-Abfrage parallel unterwegs war) sich beim naechsten
+    // Check selbst stoppt.
+    clearTimeout(cloudAutosaveTimeout);
+    bereitsAbgesendeteKombinationen.add(`${gewaehlteSchicht}|${heuteIso}`);
 
     loescheAutosave();
     zeigeMeldung('erfolg', `✅ Schicht (${gewaehlteSchicht}, ${heuteAnzeige}) erfolgreich gesendet! Die Auswertung erfolgt am Haupt-PC.`);
