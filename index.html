@@ -998,6 +998,7 @@ function aktualisiereStickyPositionen() {
 function sammleFormularDaten() {
   return {
     schicht: gewaehlteSchicht,
+    datum: document.getElementById('datumFeld').value,
     maschinenfuehrer: document.getElementById('maschinenfuehrerFeld').value,
     reinklopfer: document.getElementById('reinklopferFeld').value,
     rausnehmer: document.getElementById('rausnehmerFeld').value,
@@ -1184,17 +1185,21 @@ async function stelleAutosaveWiederHer() {
     // "Schicht: Früh/Spät" enthaelt, aber sonst komplett leer ist. Das
     // ist KEIN "unvollstaendig gesendeter Stand", sondern voellig normal
     // bei jedem frischen Laden. Nur wenn WIRKLICH mindestens ein Feld
-    // (Team, Stoerung, oder eine Station) ausgefuellt ist, handelt es
-    // sich um einen echten, wiederherstellenswerten Zwischenstand.
+    // (Team, Stoerung, eine Station, ODER ein bewusst von "heute"
+    // abweichendes Datum fuer eine nachtraeglich einzutragende Schicht)
+    // ausgefuellt/geaendert ist, handelt es sich um einen echten,
+    // wiederherstellenswerten Zwischenstand.
     const teamAusgefuellt = !!(daten.maschinenfuehrer || daten.reinklopfer || daten.rausnehmer || daten.stoerung);
     const stationAusgefuellt = (daten.stationen || []).some(st =>
       st.haekchen || st.ende || st.ausschuss || st.neueForm || st.neueGr || st.neuesSoll || st.neuesPaar ||
       st.neuerAusschuss || st.kunde || st.neueForm2 || st.neueGr2 || st.neuesSoll2 ||
       st.neuesPaar2 || st.neuerAusschuss2 || st.kunde2
     );
-    const istEchterZwischenstand = teamAusgefuellt || stationAusgefuellt;
+    const datumGeaendert = !!(daten.datum && daten.datum !== lokalesDatumIso());
+    const istEchterZwischenstand = teamAusgefuellt || stationAusgefuellt || datumGeaendert;
 
     if (daten.schicht) waehleSchicht(daten.schicht);
+    if (daten.datum) document.getElementById('datumFeld').value = daten.datum;
     document.getElementById('maschinenfuehrerFeld').value = daten.maschinenfuehrer || '';
     document.getElementById('reinklopferFeld').value = daten.reinklopfer || '';
     document.getElementById('rausnehmerFeld').value = daten.rausnehmer || '';
@@ -1253,12 +1258,15 @@ async function stelleAutosaveWiederHer() {
 // der lokale Autosave nutzt.
 async function ladeCloudEntwurfFallsVorhanden() {
   try {
-    const heuteIso = lokalesDatumIso();
+    // WICHTIG: sucht NICHT nur nach dem heutigen Datum, sondern nach dem
+    // zuletzt aktualisierten offenen Entwurf fuer diesen Rundlaeufer -
+    // sonst wuerde ein Entwurf fuer ein bewusst geaendertes Datum (z.B.
+    // eine nachtraeglich einzutragende Schicht von gestern) hier nicht
+    // gefunden werden.
     const { data, error } = await supabaseClient
       .from('schichten')
       .select('*')
       .eq('rundlaeufer', RUNDLAEUFER_NUMMER)
-      .eq('datum', heuteIso)
       .eq('status', 'entwurf')
       .order('aktualisiert_am', { ascending: false })
       .limit(1)
@@ -1268,6 +1276,7 @@ async function ladeCloudEntwurfFallsVorhanden() {
 
     return {
       schicht: data.schicht,
+      datum: data.datum,
       maschinenfuehrer: data.maschinenfuehrer,
       reinklopfer: data.reinklopfer,
       rausnehmer: data.rausnehmer,
