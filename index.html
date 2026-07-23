@@ -317,8 +317,8 @@
 
   <!-- Kopfbereich: Datum, Schicht, Team -->
   <div class="karte">
-    <label>Datum</label>
-    <input type="text" id="datumFeld" readonly>
+    <label>Datum <span style="font-weight:400; color:var(--text-dim);">(normalerweise heute - nur ändern, um eine verpasste Schicht nachzutragen)</span></label>
+    <input type="date" id="datumFeld">
 
     <label>Schicht</label>
     <div class="schicht-wahl">
@@ -430,7 +430,23 @@ function lokalesDatumAnzeige(datum) {
   return `${tag}.${monat}.${jahr}`;
 }
 
-document.getElementById('datumFeld').value = lokalesDatumAnzeige();
+// Liest das im Datumsfeld tatsaechlich AUSGEWAEHLTE Datum (Format
+// JJJJ-MM-TT, wie es <input type="date"> liefert) - das Feld steht
+// standardmaessig auf heute, kann aber manuell geaendert werden, um
+// eine verpasste/nachtraeglich einzutragende Schicht (z.B. Spaetschicht
+// von gestern) korrekt zu erfassen. Ueberall, wo bisher "heute" fest
+// angenommen wurde, wird ab jetzt dieses ausgewaehlte Datum verwendet.
+function ausgewaehltesDatumIso() {
+  const feldWert = document.getElementById('datumFeld').value;
+  return feldWert || lokalesDatumIso();
+}
+function ausgewaehltesDatumAnzeige() {
+  const iso = ausgewaehltesDatumIso();
+  const [jahr, monat, tag] = iso.split('-');
+  return `${tag}.${monat}.${jahr}`;
+}
+
+document.getElementById('datumFeld').value = lokalesDatumIso();
 
 function zeigeMeldung(typ, text) {
   const el = document.getElementById('meldungBox');
@@ -1074,7 +1090,7 @@ async function speichereCloudEntwurf() {
   if (!gewaehlteSchicht) return;
   try {
     const formular = sammleFormularDaten();
-    const heuteIso = lokalesDatumIso();
+    const heuteIso = ausgewaehltesDatumIso();
     const stationenFuerDatenbank = aktuellerStand.map(st => {
       const eingabe = formular.stationen.find(f => f.station === st.station) || {};
       return {
@@ -1387,23 +1403,8 @@ document.getElementById('absendenBtn').addEventListener('click', async () => {
   }
 
   const formular = sammleFormularDaten();
-  const heuteIso = lokalesDatumIso();
-  const heuteAnzeige = lokalesDatumAnzeige();
-
-  // WICHTIG: verhindert, dass eine UNVOLLSTAENDIGE Schicht (auch nur
-  // eine einzelne fehlende Station) an den Haupt-PC gesendet wird - dort
-  // wuerde eine leer gebliebene Station faelschlich als "0 produziert"
-  // ankommen. Es muessen daher ALLE Stationen einen "Ende"-Wert haben,
-  // bevor die Schicht abgesendet werden kann.
-  const stationenOhneEndeWert = formular.stationen
-    .filter(st => (st.ende || '').toString().trim().length === 0)
-    .map(st => st.station);
-  if (stationenOhneEndeWert.length > 0) {
-    zeigeMeldung('fehler', `❌ Bei folgenden Stationen fehlt noch der "Ende"-Wert: ${stationenOhneEndeWert.join(', ')}. Bitte zuerst alle Zählerstände eintippen, bevor die Schicht abgesendet wird.`);
-    sendeVorgangLaeuft = false;
-    document.getElementById('absendenBtn').disabled = false;
-    return;
-  }
+  const heuteIso = ausgewaehltesDatumIso();
+  const heuteAnzeige = ausgewaehltesDatumAnzeige();
 
   // Stationen-Array im selben Format wie die Haupt-App erwartet
   // ("ausgewerteteDaten.stationen") zusammenbauen. Falls Form/Gr./Soll
