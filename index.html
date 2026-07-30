@@ -858,11 +858,19 @@ function baueStationenFormular() {
       <th>Kunde</th>
     </tr>`;
 
+  // Erkennt, ob ein Formtext bereits im Muster "Artikelnummer - Kunde"
+  // vorliegt (so wie es die Haupt-App beim Erstellen des Belegungsplans
+  // erzeugt) - genutzt, um auch die bereits VORGEDRUCKTE, laufende Form
+  // (nicht nur einen waehrend der Schicht neu eingetragenen
+  // Formwechsel) blau zu markieren, falls dort schon ein Kundenauftrag
+  // vermerkt ist.
+  const hatKundeImText = (text) => (text || '').includes(' - ');
+
   const zeilen = aktuellerStand.map(st => `
     <tr id="stationZeile${st.station}">
       <td class="spalte-haekchen"><input type="checkbox" class="haekchen-checkbox" id="haekchen_${st.station}" tabindex="-1"></td>
       <td>${st.station}</td>
-      <td class="spalte-form-info"><input type="text" class="eingabe-form" id="form_${st.station}" value="${st.form || ''}" tabindex="-1"></td>
+      <td class="spalte-form-info"><input type="text" class="eingabe-form ${hatKundeImText(st.form) ? 'kundenauftrag' : ''}" id="form_${st.station}" value="${st.form || ''}" tabindex="-1"></td>
       <td><input type="text" id="groesse_${st.station}" value="${st.groesse || ''}" tabindex="-1"></td>
       <td><input type="text" id="soll_${st.station}" value="${st.soll || ''}" tabindex="-1"></td>
       <td class="spalte-anfang">${st.anfang}</td>
@@ -933,6 +941,15 @@ function baueStationenFormular() {
     const kunde2Feld = document.getElementById(`kunde2_${st.station}`);
     kunde2Feld.addEventListener('input', () => {
       neueForm2Feld.classList.toggle('kundenauftrag', kunde2Feld.value.trim().length > 0);
+    });
+
+    // Die vorgedruckte, laufende Form hat kein eigenes Kunde-Feld -
+    // stattdessen wird direkt der Formtext selbst auf das Muster
+    // "Artikelnummer - Kunde" geprueft (falls der Mitarbeiter das Feld
+    // manuell korrigiert und dabei einen Kundennamen ergaenzt/entfernt).
+    const formFeld = document.getElementById(`form_${st.station}`);
+    formFeld.addEventListener('input', () => {
+      formFeld.classList.toggle('kundenauftrag', formFeld.value.includes(' - '));
     });
 
     // Vorschlagsliste fuer Formnummern (eigenes, performantes Dropdown
@@ -1252,6 +1269,7 @@ async function stelleAutosaveWiederHer() {
       setzeWert(`kunde2_${st.station}`, st.kunde2);
       document.getElementById(`neueForm_${st.station}`)?.classList.toggle('kundenauftrag', !!(st.kunde || '').trim());
       document.getElementById(`neueForm2_${st.station}`)?.classList.toggle('kundenauftrag', !!(st.kunde2 || '').trim());
+      document.getElementById(`form_${st.station}`)?.classList.toggle('kundenauftrag', (st.form || '').includes(' - '));
       if (st.neueForm) {
         document.getElementById(`stationZeile${st.station}`)?.classList.add('formwechsel-aktiv');
       }
@@ -1400,6 +1418,11 @@ document.getElementById('rueckgaengigBtn').addEventListener('click', async () =>
       setzeWert(`kunde2_${st.station}`, st.kunde2);
       document.getElementById(`neueForm_${st.station}`)?.classList.toggle('kundenauftrag', !!(st.kunde || '').trim());
       document.getElementById(`neueForm2_${st.station}`)?.classList.toggle('kundenauftrag', !!(st.kunde2 || '').trim());
+      // Das "alte" Form-Feld wird von "Rueckgaengig" nicht ueberschrieben
+      // (es bleibt unveraendert stehen) - daher wird hier direkt der
+      // AKTUELL im Feld stehende Wert geprueft, nicht st.form.
+      const formFeldRueckgaengig = document.getElementById(`form_${st.station}`);
+      if (formFeldRueckgaengig) formFeldRueckgaengig.classList.toggle('kundenauftrag', formFeldRueckgaengig.value.includes(' - '));
       const formGeaendert = (st.form || '').trim().length > 0;
       const zeile = document.getElementById(`stationZeile${st.station}`);
       if ((st.neueForm || '').trim() && zeile) zeile.classList.add('formwechsel-aktiv');
