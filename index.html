@@ -174,20 +174,20 @@
   table.stationen-tabelle tr.formwechsel-aktiv td { background: var(--gelb-hell); }
 
   table.stationen-tabelle input {
-    width: 95px;
-    padding: 12px 6px;
-    font-size: 18px;
-    border-radius: 8px;
+    width: 68px;
+    padding: 9px 4px;
+    font-size: 16px;
+    border-radius: 7px;
     border: 1.5px solid var(--grau-rand);
     text-align: center;
     margin-bottom: 0;
   }
-  table.stationen-tabelle input.eingabe-breit { width: 150px; }
+  table.stationen-tabelle input.eingabe-breit { width: 115px; }
   /* Formnummern-Felder (alte Form + neue Form bei beiden Formwechseln)
      brauchen deutlich mehr Platz, um lange Artikelnummern inkl.
      Kundenname vollstaendig lesbar zu machen, ohne staendig scrollen zu
      muessen. */
-  table.stationen-tabelle input.eingabe-form { width: 260px; text-align: left; padding-left: 10px; }
+  table.stationen-tabelle input.eingabe-form { width: 210px; text-align: left; padding-left: 10px; }
   table.stationen-tabelle input:focus { border-color: var(--blau); outline: none; }
 
   /* Kundenauftrag: das "Neue Form"-Feld wird blau hervorgehoben, sobald
@@ -599,6 +599,7 @@ function aktiviereArtikelAutocomplete(feldId) {
 // (Form/Gr./Soll/Anfang) extrahiert.
 // ------------------------------------------------------------------
 let aktuellerStand = []; // [{station, form, groesse, soll, anfang}, ...]
+let aktuelleVorlageZeitstempel = null; // "aktualisiert_am" der zuletzt geladenen Vorlage - siehe stelleAutosaveWiederHer()
 
 function base64ZuArrayBuffer(base64) {
   const binaer = atob(base64);
@@ -758,7 +759,7 @@ async function ladeAktuellenStandInnen(versuch) {
 
   const { data, error } = await supabaseClient
     .from('vorlagen_dateien')
-    .select('base64_inhalt')
+    .select('base64_inhalt, aktualisiert_am')
     .eq('rundlaeufer', RUNDLAEUFER_NUMMER)
     .maybeSingle();
 
@@ -794,6 +795,7 @@ async function ladeAktuellenStandInnen(versuch) {
 
   try {
     console.log('[Diagnose] Beginne Excel-Datei zu lesen...');
+    aktuelleVorlageZeitstempel = data.aktualisiert_am;
     const buf = base64ZuArrayBuffer(data.base64_inhalt);
     console.log('[Diagnose] Base64 dekodiert, Bytes:', buf.byteLength);
     const wb = XLSX.read(buf, { type: 'array' });
@@ -1041,6 +1043,12 @@ function sammleFormularDaten() {
   return {
     schicht: gewaehlteSchicht,
     datum: document.getElementById('datumFeld').value,
+    // Zeitstempel der Vorlage, die zum Zeitpunkt dieser Eingabe geladen
+    // war - wird beim Wiederherstellen genutzt, um zu erkennen, ob
+    // inzwischen eine NEUERE Vorlage vom Haupt-PC eingetroffen ist (dann
+    // duerfen die "Form"-Felder NICHT mit dem alten Autosave-Stand
+    // ueberschrieben werden, siehe stelleAutosaveWiederHer()).
+    vorlageZeitstempel: aktuelleVorlageZeitstempel,
     maschinenfuehrer: document.getElementById('maschinenfuehrerFeld').value,
     reinklopfer: document.getElementById('reinklopferFeld').value,
     rausnehmer: document.getElementById('rausnehmerFeld').value,
@@ -1266,6 +1274,21 @@ async function stelleAutosaveWiederHer() {
     const datumGeaendert = !!(daten.datum && daten.datum !== lokalesDatumIso());
     const istEchterZwischenstand = teamAusgefuellt || stationAusgefuellt || datumGeaendert;
 
+    // KRITISCH: falls die Vorlage, mit der der Autosave gespeichert
+    // wurde, AELTER ist als die gerade frisch geladene Vorlage (der
+    // Haupt-PC hat also inzwischen einen neuen Belegungsplan erstellt),
+    // duerfen die "Form"/"Größe"/"Soll"-Felder (vorgedruckte, aktuelle
+    // Werte) NICHT aus dem alten Autosave ueberschrieben werden - sonst
+    // wuerden frisch geladene, korrekte neue Formnummern durch die alten
+    // ueberschrieben. Die tatsaechlichen EINGABEN des Mitarbeiters
+    // (Ende, Ausschuss, Formwechsel...) werden trotzdem wiederhergestellt,
+    // da diese unabhaengig von der Vorlage sind und sonst verloren gingen.
+    const vorlageIstNeuer = aktuelleVorlageZeitstempel && daten.vorlageZeitstempel &&
+      new Date(aktuelleVorlageZeitstempel) > new Date(daten.vorlageZeitstempel);
+    if (vorlageIstNeuer) {
+      console.warn('[Diagnose] Autosave stammt von einer AELTEREN Vorlage - Form/Gr./Soll-Felder werden NICHT ueberschrieben, nur die Eingaben (Ende, Ausschuss, Formwechsel) werden wiederhergestellt.');
+    }
+
     if (daten.schicht) waehleSchicht(daten.schicht);
     if (daten.datum) document.getElementById('datumFeld').value = daten.datum;
     document.getElementById('maschinenfuehrerFeld').value = daten.maschinenfuehrer || '';
@@ -1276,9 +1299,11 @@ async function stelleAutosaveWiederHer() {
       const setzeWert = (id, wert) => { const el = document.getElementById(id); if (el && wert) el.value = wert; };
       const haekchenFeld = document.getElementById(`haekchen_${st.station}`);
       if (haekchenFeld) haekchenFeld.checked = !!st.haekchen;
-      setzeWert(`form_${st.station}`, st.form);
-      setzeWert(`groesse_${st.station}`, st.groesse);
-      setzeWert(`soll_${st.station}`, st.soll);
+      if (!vorlageIstNeuer) {
+        setzeWert(`form_${st.station}`, st.form);
+        setzeWert(`groesse_${st.station}`, st.groesse);
+        setzeWert(`soll_${st.station}`, st.soll);
+      }
       setzeWert(`ende_${st.station}`, st.ende);
       setzeWert(`ausschuss_${st.station}`, st.ausschuss);
       setzeWert(`neueForm_${st.station}`, st.neueForm);
@@ -1304,9 +1329,15 @@ async function stelleAutosaveWiederHer() {
 
     if (istEchterZwischenstand) {
       document.getElementById('autosaveHinweisBtn').style.display = 'block';
-      zeigeMeldung('info', quelleCloud
-        ? 'ℹ️ Ein zuvor unvollständig gesendeter Stand wurde aus der Cloud-Sicherung wiederhergestellt (lokaler Speicher war leer).'
-        : 'ℹ️ Ein zuvor unvollständig gesendeter Stand wurde wiederhergestellt.');
+      let meldungText;
+      if (vorlageIstNeuer) {
+        meldungText = 'ℹ️ Deine bisherigen Eingaben (Ende, Ausschuss, Formwechsel) wurden wiederhergestellt. WICHTIG: Es liegt inzwischen ein NEUER Belegungsplan vor - die vorgedruckten Form/Gr./Soll-Werte zeigen bereits den aktuellen Stand, bitte NICHT mehr manuell anpassen.';
+      } else if (quelleCloud) {
+        meldungText = 'ℹ️ Ein zuvor unvollständig gesendeter Stand wurde aus der Cloud-Sicherung wiederhergestellt (lokaler Speicher war leer).';
+      } else {
+        meldungText = 'ℹ️ Ein zuvor unvollständig gesendeter Stand wurde wiederhergestellt.';
+      }
+      zeigeMeldung('info', meldungText);
       // Automatisch nach kurzer Zeit ausblenden, statt dass der
       // Hinweis-Button dauerhaft stehen bleibt und manuell weggetippt
       // werden muss - der Zwischenstand selbst ist ja bereits sichtbar
