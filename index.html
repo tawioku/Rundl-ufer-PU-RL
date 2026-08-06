@@ -341,6 +341,11 @@
 
   <div class="meldung" id="meldungBox" style="padding:6px 10px; font-size:12px; margin-bottom:4px;"></div>
 
+  <!-- Sichtbarer Diagnose-Bereich - hilft, ein Problem direkt auf dem
+       Tablet abzulesen und durchzugeben, ohne Entwicklertools zu
+       brauchen. Kann bei Bedarf spaeter wieder entfernt werden. -->
+  <div id="diagnoseBereich" style="background:#fffbea; border:1px solid #e0c66b; border-radius:6px; padding:6px 8px; margin-bottom:4px; font-size:10px; color:#6b5900; white-space:pre-wrap; max-height:90px; overflow-y:auto;"></div>
+
   <!-- Kompakter Kopfbereich: Datum, Schicht, Team und Störung in EINER
        Zeile statt mehrerer grosser Karten - maximiert den Platz fuer
        die Stationstabelle darunter. -->
@@ -486,6 +491,20 @@ function zeigeMeldung(typ, text) {
   el.className = 'meldung ' + typ;
   el.textContent = text;
   window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// Schreibt eine Diagnose-Zeile SOWOHL in die Browser-Konsole (fuer
+// Entwickler mit F12-Tools) ALS AUCH sichtbar in einen kleinen Bereich
+// direkt im Formular - damit ein Problem auch OHNE Entwicklertools
+// direkt auf dem Tablet abgelesen und durchgegeben werden kann. Die
+// neueste Zeile steht immer oben.
+function diagnose(text) {
+  console.log('[Diagnose] ' + text);
+  const el = document.getElementById('diagnoseBereich');
+  if (el) {
+    const zeit = new Date().toLocaleTimeString('de-DE');
+    el.textContent = `[${zeit}] ${text}\n` + el.textContent;
+  }
 }
 
 // ------------------------------------------------------------------
@@ -1297,7 +1316,7 @@ async function stelleAutosaveWiederHer() {
   const datenCloud = await ladeCloudEntwurfFallsVorhanden();
 
   const zaehleAusgefuellt = (d) => d ? (d.stationen || []).filter(st => st.ende || st.ausschuss || st.neueForm).length : -1;
-  console.log(`[Diagnose] stelleAutosaveWiederHer(): lokal vorhanden=${!!datenLokal} (ausgefuellte Stationen=${zaehleAusgefuellt(datenLokal)}, gespeichertAm=${datenLokal?.gespeichertAm}), cloud vorhanden=${!!datenCloud} (ausgefuellte Stationen=${zaehleAusgefuellt(datenCloud)}, gespeichertAm=${datenCloud?.gespeichertAm})`);
+  diagnose(`Wiederherstellung: lokal=${!!datenLokal}(${zaehleAusgefuellt(datenLokal)} Stat.) cloud=${!!datenCloud}(${zaehleAusgefuellt(datenCloud)} Stat.)`);
 
   let daten = null;
   let quelleCloud = false;
@@ -1307,20 +1326,20 @@ async function stelleAutosaveWiederHer() {
     if (cloudZeit > lokalZeit) {
       daten = datenCloud;
       quelleCloud = true;
-      console.log('[Diagnose] Cloud-Entwurf ist NEUER als lokaler Autosave - Cloud-Stand wird verwendet.');
+      diagnose('-> Cloud-Entwurf ist NEUER, wird verwendet.');
     } else {
       daten = datenLokal;
-      console.log('[Diagnose] Lokaler Autosave ist neuer oder gleich alt - lokaler Stand wird verwendet.');
+      diagnose('-> Lokaler Autosave ist neuer/gleich, wird verwendet.');
     }
   } else if (datenCloud) {
     daten = datenCloud;
     quelleCloud = true;
-    console.log('[Diagnose] Nur Cloud-Entwurf vorhanden - wird verwendet.');
+    diagnose('-> Nur Cloud-Entwurf vorhanden, wird verwendet.');
   } else if (datenLokal) {
     daten = datenLokal;
-    console.log('[Diagnose] Nur lokaler Autosave vorhanden - wird verwendet.');
+    diagnose('-> Nur lokaler Autosave vorhanden, wird verwendet.');
   } else {
-    console.log('[Diagnose] WEDER lokal noch Cloud ein Entwurf gefunden - keine Wiederherstellung moeglich.');
+    diagnose('-> WEDER lokal noch Cloud gefunden - keine Wiederherstellung.');
   }
 
   if (!daten) return;
@@ -1407,6 +1426,16 @@ async function stelleAutosaveWiederHer() {
       }
     });
     aktualisiereGesamtKaestchen();
+
+    // Zaehlt NACH der Wiederherstellung direkt im DOM nach, wie viele
+    // Stationen tatsaechlich einen Ende-Wert haben - zeigt zuverlaessig,
+    // ob das Wiederherstellen wirklich gegriffen hat, unabhaengig davon,
+    // was "daten" behauptet.
+    const tatsaechlichImDom = aktuellerStand.filter(st => {
+      const feld = document.getElementById(`ende_${st.station}`);
+      return feld && feld.value;
+    }).length;
+    diagnose(`Wiederherstellung angewendet, istEchterZwischenstand=${istEchterZwischenstand}, vorlageIstNeuer=${vorlageIstNeuer}, quelleCloud=${quelleCloud}, TATSAECHLICH im DOM ausgefuellte Stationen NACHHER=${tatsaechlichImDom}`);
 
     if (istEchterZwischenstand) {
       document.getElementById('autosaveHinweisBtn').style.display = 'block';
@@ -1801,7 +1830,7 @@ document.getElementById('manuellAktualisierenBtn').addEventListener('click', asy
   // garantiert in localStorage UND in der Cloud gesichert.
   const formularVorSpeichern = sammleFormularDaten();
   const anzahlAusgefuellterStationenVorher = (formularVorSpeichern.stationen || []).filter(st => st.ende || st.ausschuss || st.neueForm).length;
-  console.log(`[Diagnose] Aktualisieren-Klick: gewaehlteSchicht=${gewaehlteSchicht}, Datum=${document.getElementById('datumFeld').value}, ausgefuellte Stationen im DOM VOR dem Speichern=${anzahlAusgefuellterStationenVorher}`);
+  diagnose(`Aktualisieren-Klick: Schicht=${gewaehlteSchicht}, Datum=${document.getElementById('datumFeld').value}, ausgefuellte Stationen VOR Speichern=${anzahlAusgefuellterStationenVorher}`);
 
   clearTimeout(autosaveTimeout);
   clearTimeout(cloudAutosaveTimeout);
@@ -1811,11 +1840,11 @@ document.getElementById('manuellAktualisierenBtn').addEventListener('click', asy
   btn.textContent = '⏳ Speichere...';
 
   if (!gewaehlteSchicht) {
-    console.warn('[Diagnose] KEINE Schicht ausgewaehlt (gewaehlteSchicht ist leer/null) - speichereCloudEntwurf() wuerde daher NICHTS tun!');
+    diagnose('WARNUNG: KEINE Schicht ausgewaehlt - Speichern wuerde NICHTS tun!');
   }
 
   await speichereCloudEntwurf();
-  console.log('[Diagnose] speichereCloudEntwurf() abgeschlossen, laedt Seite jetzt neu.');
+  diagnose('Speichern abgeschlossen, laedt Seite jetzt neu.');
   window.location.reload();
 });
 
