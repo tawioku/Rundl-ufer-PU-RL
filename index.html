@@ -1203,13 +1203,35 @@ async function speichereCloudEntwurf() {
     // "Schicht absenden" parallel fertig wird.
     const { data: bestehendeZeile } = await supabaseClient
       .from('schichten')
-      .select('status')
+      .select('status, stationen')
       .eq('rundlaeufer', RUNDLAEUFER_NUMMER)
       .eq('datum', heuteIso)
       .eq('schicht', gewaehlteSchicht)
       .maybeSingle();
     if (bestehendeZeile && bestehendeZeile.status !== 'entwurf') {
       bereitsAbgesendeteKombinationen.add(`${gewaehlteSchicht}|${heuteIso}`);
+      return;
+    }
+
+    // KRITISCHE ABSICHERUNG gegen versehentliches "Leerschreiben": wenn
+    // in der Datenbank bereits ein NICHT-leerer Entwurf existiert (also
+    // mindestens eine Station hat einen Ende-Wert oder Formwechsel),
+    // der neu zu schreibende Stand aber KOMPLETT LEER waere, wird NICHT
+    // gespeichert. Ein komplett leerer Stand kann durch verschiedene
+    // seltene Ablaufprobleme entstehen (z.B. wenn die Tabelle im
+    // Formular gerade neu aufgebaut wird, waehrend "Aktualisieren"
+    // geklickt wird) - in jedem Fall soll ein bereits vorhandener,
+    // echter Zwischenstand niemals durch einen leeren Stand ersetzt
+    // werden, das waere immer ein Datenverlust, nie ein gewolltes
+    // Verhalten.
+    const neuerStandIstLeer = stationenFuerDatenbank.every(st =>
+      !st.ende && !st.ausschuss && !st.neue_form && !st.neuer_ausschuss
+    );
+    const bestehenderStandIstNichtLeer = bestehendeZeile && (bestehendeZeile.stationen || []).some(st =>
+      st.ende || st.ausschuss || st.neue_form || st.neuer_ausschuss
+    );
+    if (neuerStandIstLeer && bestehenderStandIstNichtLeer) {
+      console.warn('[Diagnose] Cloud-Entwurf-Speicherung ABGEBROCHEN: der neue Stand ist komplett leer, waehrend in der Datenbank bereits ein nicht-leerer Stand existiert - ein Ueberschreiben mit leeren Werten wird verhindert.');
       return;
     }
 
