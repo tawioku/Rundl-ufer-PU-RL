@@ -332,7 +332,7 @@
 <header>
   <h1 id="titelText">Rundläufer –</h1>
   <div style="display:flex; align-items:center; gap:10px;">
-    <span style="font-size:10px; color:var(--rot); font-weight:700;">v2026-08-06-11:20</span>
+    <span style="font-size:10px; color:var(--rot); font-weight:700;">v2026-08-06-14:15</span>
     <button type="button" id="manuellAktualisierenBtn" style="padding:5px 10px; font-size:11px; font-weight:700; border-radius:7px; border:1.5px solid var(--grau-rand); background:white; color:var(--blau); cursor:pointer;">🔄 Aktualisieren</button>
     <div><span class="status-punkt" id="statusPunkt"></span><span id="statusText" style="font-size:12px; color:var(--text-dim);">Verbinde...</span></div>
   </div>
@@ -341,8 +341,6 @@
 <div class="container">
 
   <div class="meldung" id="meldungBox" style="padding:6px 10px; font-size:12px; margin-bottom:4px;"></div>
-
-  <div id="diagnoseBereich" style="background:#fffbea; border:1px solid #e0c66b; border-radius:6px; padding:6px 8px; margin-bottom:4px; font-size:10px; color:#6b5900; white-space:pre-wrap; max-height:120px; overflow-y:auto;"></div>
 
   <!-- Kompakter Kopfbereich: Datum, Schicht, Team und Störung in EINER
        Zeile statt mehrerer grosser Karten - maximiert den Platz fuer
@@ -1180,7 +1178,16 @@ function speichereAutosaveSofort() {
 // gesendet" bleibt auf status='offen'), das dient ausschliesslich als
 // Wiederherstellungs-Sicherung fuer DIESES Tablet, falls sein lokaler
 // Speicher (localStorage) verloren geht.
-async function speichereCloudEntwurf() {
+// Oeffentliche Funktion: reiht den eigentlichen Speichervorgang in die
+// Kette ein, statt ihn sofort parallel zu starten - garantiert, dass
+// niemals zwei Aufrufe gleichzeitig laufen (siehe Kommentar bei
+// cloudEntwurfKette weiter oben).
+function speichereCloudEntwurf() {
+  cloudEntwurfKette = cloudEntwurfKette.then(() => speichereCloudEntwurfInnen());
+  return cloudEntwurfKette;
+}
+
+async function speichereCloudEntwurfInnen() {
   if (!gewaehlteSchicht) return;
   const heuteIso = ausgewaehltesDatumIso();
   // WICHTIG: falls genau diese Schicht/Datum-Kombination gerade schon
@@ -1637,6 +1644,18 @@ let sendeVorgangLaeuft = false;
 // laufender Cloud-Speicherversuch zeitlich noch "unterwegs" war, als
 // "Schicht absenden" fertig wurde. Siehe Kommentar bei speichereCloudEntwurf().
 let bereitsAbgesendeteKombinationen = new Set();
+
+// Sequenzialisiert speichereCloudEntwurf()-Aufrufe: verhindert, dass ZWEI
+// Aufrufe gleichzeitig "unterwegs" sind und sich dabei gegenseitig
+// ueberholen koennen (der spaeter GESTARTETE, aber zufaellig frueher
+// FERTIGE Aufruf mit veralteten Daten wuerde sonst den eigentlich
+// aktuelleren Stand ueberschreiben). Ein bereits laufender Aufruf wird
+// nicht abgebrochen, aber ein neuer Aufruf WARTET, bis der vorherige
+// fertig ist, bevor er selbst die aktuellen Formulardaten einliest und
+// schreibt - so gewinnt immer der zeitlich spaetere, tatsaechlich
+// aktuellere Stand.
+let cloudEntwurfKette = Promise.resolve();
+
 document.getElementById('absendenBtn').addEventListener('click', async () => {
   // WICHTIG: als ALLERERSTES pruefen und sperren - verhindert, dass ein
   // zweiter, schneller Klick (Doppelklick oder ungeduldiges nochmaliges
