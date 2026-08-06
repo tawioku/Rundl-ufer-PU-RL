@@ -1756,6 +1756,17 @@ document.getElementById('absendenBtn').addEventListener('click', async () => {
     // Check selbst stoppt.
     clearTimeout(cloudAutosaveTimeout);
     bereitsAbgesendeteKombinationen.add(`${gewaehlteSchicht}|${heuteIso}`);
+    // Der Eintrag soll nur KURZZEITIG verhindern, dass ein bereits
+    // laufender, veralteter Cloud-Speicherversuch (der schon "unterwegs"
+    // war, als "Absenden" geklickt wurde) die frisch gesendete Zeile
+    // ueberschreibt. Er wird daher nach kurzer Zeit wieder entfernt -
+    // sonst wuerde jegliches SPAETERES Weiterarbeiten an derselben
+    // Schicht/demselben Datum (z.B. testweise Werte fuer die naechste
+    // Schicht eintragen, oder eine Korrektur nach dem Absenden) dauerhaft
+    // von der Cloud-Sicherung ausgeschlossen bleiben.
+    setTimeout(() => {
+      bereitsAbgesendeteKombinationen.delete(`${gewaehlteSchicht}|${heuteIso}`);
+    }, 5000);
 
     loescheAutosave();
     zeigeMeldung('erfolg', `✅ Schicht (${gewaehlteSchicht}, ${heuteAnzeige}) erfolgreich gesendet! Die Auswertung erfolgt am Haupt-PC.`);
