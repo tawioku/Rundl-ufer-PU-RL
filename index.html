@@ -1296,6 +1296,9 @@ async function stelleAutosaveWiederHer() {
   }
   const datenCloud = await ladeCloudEntwurfFallsVorhanden();
 
+  const zaehleAusgefuellt = (d) => d ? (d.stationen || []).filter(st => st.ende || st.ausschuss || st.neueForm).length : -1;
+  console.log(`[Diagnose] stelleAutosaveWiederHer(): lokal vorhanden=${!!datenLokal} (ausgefuellte Stationen=${zaehleAusgefuellt(datenLokal)}, gespeichertAm=${datenLokal?.gespeichertAm}), cloud vorhanden=${!!datenCloud} (ausgefuellte Stationen=${zaehleAusgefuellt(datenCloud)}, gespeichertAm=${datenCloud?.gespeichertAm})`);
+
   let daten = null;
   let quelleCloud = false;
   if (datenLokal && datenCloud) {
@@ -1307,12 +1310,17 @@ async function stelleAutosaveWiederHer() {
       console.log('[Diagnose] Cloud-Entwurf ist NEUER als lokaler Autosave - Cloud-Stand wird verwendet.');
     } else {
       daten = datenLokal;
+      console.log('[Diagnose] Lokaler Autosave ist neuer oder gleich alt - lokaler Stand wird verwendet.');
     }
   } else if (datenCloud) {
     daten = datenCloud;
     quelleCloud = true;
+    console.log('[Diagnose] Nur Cloud-Entwurf vorhanden - wird verwendet.');
   } else if (datenLokal) {
     daten = datenLokal;
+    console.log('[Diagnose] Nur lokaler Autosave vorhanden - wird verwendet.');
+  } else {
+    console.log('[Diagnose] WEDER lokal noch Cloud ein Entwurf gefunden - keine Wiederherstellung moeglich.');
   }
 
   if (!daten) return;
@@ -1791,13 +1799,23 @@ document.getElementById('manuellAktualisierenBtn').addEventListener('click', asy
   // Stattdessen wird hier explizit UND SYNCHRON (mit await) gespeichert,
   // bevor "reload()" ueberhaupt aufgerufen wird - danach ist der Stand
   // garantiert in localStorage UND in der Cloud gesichert.
+  const formularVorSpeichern = sammleFormularDaten();
+  const anzahlAusgefuellterStationenVorher = (formularVorSpeichern.stationen || []).filter(st => st.ende || st.ausschuss || st.neueForm).length;
+  console.log(`[Diagnose] Aktualisieren-Klick: gewaehlteSchicht=${gewaehlteSchicht}, Datum=${document.getElementById('datumFeld').value}, ausgefuellte Stationen im DOM VOR dem Speichern=${anzahlAusgefuellterStationenVorher}`);
+
   clearTimeout(autosaveTimeout);
   clearTimeout(cloudAutosaveTimeout);
   speichereAutosaveSofort();
   const btn = document.getElementById('manuellAktualisierenBtn');
   btn.disabled = true;
   btn.textContent = '⏳ Speichere...';
+
+  if (!gewaehlteSchicht) {
+    console.warn('[Diagnose] KEINE Schicht ausgewaehlt (gewaehlteSchicht ist leer/null) - speichereCloudEntwurf() wuerde daher NICHTS tun!');
+  }
+
   await speichereCloudEntwurf();
+  console.log('[Diagnose] speichereCloudEntwurf() abgeschlossen, laedt Seite jetzt neu.');
   window.location.reload();
 });
 
