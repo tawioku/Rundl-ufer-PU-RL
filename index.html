@@ -231,15 +231,15 @@
 
   .grosser-btn {
     width: 100%;
-    padding: 20px;
-    font-size: 20px;
+    padding: 12px;
+    font-size: 15px;
     font-weight: 700;
-    border-radius: 12px;
+    border-radius: 9px;
     border: none;
     background: var(--gruen);
     color: white;
     cursor: pointer;
-    margin-top: 10px;
+    margin-top: 6px;
   }
   .grosser-btn:disabled { background: #a8b0bb; }
   .grosser-btn.sekundaer { background: white; color: var(--text); border: 2px solid var(--grau-rand); }
@@ -270,13 +270,13 @@
   }
   .popup-box {
     background: white;
-    border-radius: 16px;
-    padding: 28px;
-    box-shadow: 0 12px 40px rgba(0,0,0,0.3);
+    border-radius: 12px;
+    padding: 16px;
+    box-shadow: 0 8px 28px rgba(0,0,0,0.3);
     display: flex;
     align-items: flex-start;
-    gap: 16px;
-    max-width: 420px;
+    gap: 10px;
+    max-width: 320px;
   }
 
   /* Eigenes Vorschlags-Dropdown fuer Artikelnummern (ersetzt <datalist>,
@@ -309,22 +309,22 @@
      (aktualisierte Vorlage) fuer diesen Rundlaeufer gespeichert hat. -->
 <div id="neuerPlanOverlay" class="popup-overlay versteckt">
   <div class="popup-box">
-    <div style="font-size:40px;">📋</div>
+    <div style="font-size:24px;">📋</div>
     <div>
-      <div style="font-weight:800; font-size:19px; margin-bottom:6px;">Neuer Belegungsplan verfügbar</div>
-      <div style="color:var(--text-dim); font-size:15px; margin-bottom:14px;">Die Anfang-Werte für die nächste Schicht wurden aktualisiert.</div>
-      <button type="button" class="grosser-btn" id="neuerPlanUebernehmenBtn" style="margin-top:0;">🔄 Jetzt aktualisieren</button>
+      <div style="font-weight:800; font-size:14px; margin-bottom:4px;">Neuer Belegungsplan verfügbar</div>
+      <div style="color:var(--text-dim); font-size:12px; margin-bottom:8px;">Die Anfang-Werte für die nächste Schicht wurden aktualisiert.</div>
+      <button type="button" class="grosser-btn" id="neuerPlanUebernehmenBtn" style="margin-top:0; padding:8px;">🔄 Jetzt aktualisieren</button>
     </div>
   </div>
 </div>
 
 <div id="neuerAuftragOverlay" class="popup-overlay versteckt">
   <div class="popup-box">
-    <div style="font-size:40px;">📬</div>
+    <div style="font-size:24px;">📬</div>
     <div>
-      <div style="font-weight:800; font-size:19px; margin-bottom:6px;">Neuer Auftrag vom Abteilungsleiter</div>
-      <div style="color:var(--text-dim); font-size:15px; margin-bottom:14px;">Es gibt eine neue Anweisung für diesen Rundläufer.</div>
-      <button type="button" class="grosser-btn" id="neuerAuftragAnsehenBtn" style="margin-top:0;">📋 Ansehen</button>
+      <div style="font-weight:800; font-size:14px; margin-bottom:4px;">Neuer Auftrag vom Abteilungsleiter</div>
+      <div style="color:var(--text-dim); font-size:12px; margin-bottom:8px;">Es gibt eine neue Anweisung für diesen Rundläufer.</div>
+      <button type="button" class="grosser-btn" id="neuerAuftragAnsehenBtn" style="margin-top:0; padding:8px;">📋 Ansehen</button>
     </div>
   </div>
 </div>
@@ -391,15 +391,28 @@
   </div>
 
   <!-- Stationen - nimmt den gesamten verbleibenden Platz ein (flex),
-       damit moeglichst alle 20 Stationen ohne Scrollen sichtbar sind. -->
-  <div id="stationenBereich" style="display:flex; flex-direction:column; flex:1; min-height:0;"></div>
+       damit moeglichst alle 20 Stationen ohne Scrollen sichtbar sind.
+       "overflow:hidden" hier ist WICHTIG: verhindert, dass die Tabelle
+       (die durch viele Spalten/Zeilen von Natur aus gross werden will)
+       ueber ihren zugewiesenen Platz hinauswaechst. Zusaetzlich
+       padding-bottom, damit die letzte Stationszeile nicht hinter dem
+       jetzt komplett unabhaengig FIXIERTEN Button-Bereich verschwindet
+       (siehe unten). -->
+  <div id="stationenBereich" style="display:flex; flex-direction:column; flex:1; min-height:0; overflow:hidden; padding-bottom:56px;"></div>
 
-  <div class="karte" style="margin-top:6px; margin-bottom:0; display:flex; gap:8px;">
-    <button type="button" class="grosser-btn" id="absendenBtn" style="margin-top:0; padding:10px;">✅ Schicht absenden</button>
-    <button type="button" class="grosser-btn sekundaer" id="rueckgaengigBtn" style="display:none; margin-top:0; padding:10px;">↩️ Zuletzt gesendete Schicht rückgängig machen</button>
-    <button type="button" class="grosser-btn sekundaer" id="autosaveHinweisBtn" style="display:none; margin-top:0; padding:10px;">↩️ Zwischenstand wiederhergestellt</button>
-  </div>
+</div>
 
+<!-- WICHTIG: "position:fixed" statt "sticky" und AUSSERHALB von
+     .container platziert - macht diesen Bereich komplett unabhaengig
+     von der Flexbox-Verteilung/Groesse des Tabelleninhalts. Egal wie
+     hoch die Stationstabelle durch viele ausgefuellte Formwechsel wird
+     (z.B. nach einem Autosave-Wiederherstellen oder "Jetzt
+     aktualisieren"), dieser Bereich bleibt garantiert am unteren
+     Bildschirmrand sichtbar. -->
+<div style="position:fixed; left:0; right:0; bottom:0; z-index:100; background:white; border-top:1px solid var(--grau-rand); padding:8px 10px; display:flex; gap:8px;">
+  <button type="button" class="grosser-btn" id="absendenBtn" style="margin-top:0; padding:10px; flex-shrink:0;">✅ Schicht absenden</button>
+  <button type="button" class="grosser-btn sekundaer" id="rueckgaengigBtn" style="display:none; margin-top:0; padding:10px; flex-shrink:0;">↩️ Zuletzt gesendete Schicht rückgängig machen</button>
+  <button type="button" class="grosser-btn sekundaer" id="autosaveHinweisBtn" style="display:none; margin-top:0; padding:10px; flex-shrink:0;">↩️ Zwischenstand wiederhergestellt</button>
 </div>
 
 <script>
@@ -419,7 +432,7 @@ const urlParameter = new URLSearchParams(window.location.search);
 const RUNDLAEUFER_NUMMER = parseInt(urlParameter.get('rl'), 10);
 
 if (!RUNDLAEUFER_NUMMER || RUNDLAEUFER_NUMMER < 1) {
-  document.body.innerHTML = '<div style="padding:40px; text-align:center; font-size:20px;">' +
+  document.body.innerHTML = '<div style="padding:20px; text-align:center; font-size:15px;">' +
     '⚠️ Keine gültige Rundläufer-Nummer in der Adresse gefunden.<br><br>' +
     'Bitte die Adresse mit "?rl=NUMMER" aufrufen, z.B.:<br>' +
     '<code>tablet.html?rl=4</code></div>';
@@ -761,7 +774,7 @@ async function ladeAktuellenStandInnen(versuch) {
   const MAX_VERSUCHE = 4;
   console.log(`[Diagnose] ladeAktuellenStand() gestartet für Rundläufer ${RUNDLAEUFER_NUMMER} (Versuch ${versuch}/${MAX_VERSUCHE})`);
   const bereich = document.getElementById('stationenBereich');
-  bereich.innerHTML = `<div class="karte" style="text-align:center; padding:30px;">⏳ Lade aktuellen Stand...</div>`;
+  bereich.innerHTML = `<div class="karte" style="text-align:center; padding:14px; font-size:13px;">⏳ Lade aktuellen Stand...</div>`;
 
   const { data, error } = await supabaseClient
     .from('vorlagen_dateien')
@@ -782,20 +795,20 @@ async function ladeAktuellenStandInnen(versuch) {
   // aufgerufen, damit die Sperre nicht zwischendurch freigegeben wird.
   if (error) {
     if (versuch < MAX_VERSUCHE) {
-      bereich.innerHTML = `<div class="karte" style="text-align:center; padding:30px;">⏳ Verbindung wird wiederhergestellt, versuche erneut...</div>`;
+      bereich.innerHTML = `<div class="karte" style="text-align:center; padding:14px; font-size:13px;">⏳ Verbindung wird wiederhergestellt, versuche erneut...</div>`;
       await new Promise(resolve => setTimeout(resolve, versuch * 1500));
       return ladeAktuellenStandInnen(versuch + 1);
     }
     const hinweis = `❌ Die Vorlage konnte auch nach mehreren Versuchen nicht geladen werden - bitte WLAN-Verbindung prüfen und die Seite neu laden. Ein bereits eingetragener Zwischenstand bleibt auf diesem Gerät gespeichert und geht dabei nicht verloren.`;
     zeigeMeldung('fehler', hinweis);
-    bereich.innerHTML = `<div class="karte" style="text-align:center; padding:30px; color:var(--rot); font-weight:600;">${hinweis}</div>`;
+    bereich.innerHTML = `<div class="karte" style="text-align:center; padding:14px; font-size:13px; color:var(--rot); font-weight:600;">${hinweis}</div>`;
     return;
   }
 
   if (!data) {
     const hinweis = `❌ Für Rundläufer ${RUNDLAEUFER_NUMMER} ist noch keine Vorlage in der Datenbank hinterlegt. Bitte am Haupt-PC in den Einstellungen eine Vorlage hochladen, dann diese Seite neu laden.`;
     zeigeMeldung('fehler', hinweis);
-    bereich.innerHTML = `<div class="karte" style="text-align:center; padding:30px; color:var(--rot); font-weight:600;">${hinweis}</div>`;
+    bereich.innerHTML = `<div class="karte" style="text-align:center; padding:14px; font-size:13px; color:var(--rot); font-weight:600;">${hinweis}</div>`;
     return;
   }
 
@@ -830,7 +843,7 @@ async function ladeAktuellenStandInnen(versuch) {
     console.error('[Diagnose] FEHLER beim Lesen der Vorlage:', fehler);
     const hinweis = '❌ Die hinterlegte Vorlage konnte nicht gelesen werden: ' + fehler.message + '. Bitte am Haupt-PC prüfen.';
     zeigeMeldung('fehler', hinweis);
-    bereich.innerHTML = `<div class="karte" style="text-align:center; padding:30px; color:var(--rot); font-weight:600;">${hinweis}</div>`;
+    bereich.innerHTML = `<div class="karte" style="text-align:center; padding:14px; font-size:13px; color:var(--rot); font-weight:600;">${hinweis}</div>`;
   }
 }
 
@@ -1308,7 +1321,17 @@ async function stelleAutosaveWiederHer() {
     // ueberschrieben. Die tatsaechlichen EINGABEN des Mitarbeiters
     // (Ende, Ausschuss, Formwechsel...) werden trotzdem wiederhergestellt,
     // da diese unabhaengig von der Vorlage sind und sonst verloren gingen.
-    const vorlageIstNeuer = aktuelleVorlageZeitstempel && daten.vorlageZeitstempel &&
+    // Vergleich der Vorlagen-Zeitstempel: nur wenn beide bekannt sind
+    // UND die aktuell geladene Vorlage NACHWEISLICH neuer ist, werden
+    // die Form/Gr./Soll-Felder NICHT aus dem Autosave uebernommen (das
+    // Formular verwendet dann stattdessen die frisch geladenen, neuen
+    // Werte). Ist einer der beiden Zeitstempel unbekannt (z.B. ein sehr
+    // alter Autosave-Eintrag von vor dieser Funktion), wird der
+    // Autosave-Stand normal wiederhergestellt wie bisher - fuer
+    // korrekte Funktion in diesem Fall muss auf jedem Tablet EINMALIG
+    // der Browser-Cache/die App-Daten geleert werden, damit kein
+    // Autosave-Eintrag ohne diesen Zeitstempel mehr vorhanden ist.
+    const vorlageIstNeuer = !!aktuelleVorlageZeitstempel && !!daten.vorlageZeitstempel &&
       new Date(aktuelleVorlageZeitstempel) > new Date(daten.vorlageZeitstempel);
     if (vorlageIstNeuer) {
       console.warn('[Diagnose] Autosave stammt von einer AELTEREN Vorlage - Form/Gr./Soll-Felder werden NICHT ueberschrieben, nur die Eingaben (Ende, Ausschuss, Formwechsel) werden wiederhergestellt.');
